@@ -4,7 +4,9 @@
 
 First release.
 
-- Graph model with clusters, parallel edges and self-loops. A node carries its
+- Graph model with clusters, parallel edges and self-loops. Labels are
+  measured by terminal display width, so a CJK label is sized as it renders
+  rather than as it counts. A node carries its
   intrinsic size, measured from its label, before any layout runs; layout
   assigns positions and never invents a size.
 - Three inputs: a DOT parser for the subset that matters, the `.kg` line
@@ -31,5 +33,5 @@ First release.
 - Two themes, both validated for colourblind separation, lightness band and
   contrast against their own surface.
 - A five-verb command: `draw`, `chart`, `convert`, `layout`, `doctor`.
-- 123 tests, no runtime dependencies. The raster tests skip rather than fail
+- 128 tests, no runtime dependencies. The raster tests skip rather than fail
   where soft-raster is absent.

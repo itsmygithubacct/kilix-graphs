@@ -160,8 +160,15 @@ def loads(source: str) -> Graph:
             continue
 
         directed_seen = True
-        body, label = _split_label(stripped)
-        body, attrs = _parse_attrs(body, number)
+        # Attributes come off the end first. Splitting the label first instead
+        # made `a: Label {shape=box}` a node whose *label* was
+        # "Label {shape=box}" -- the attribute block landed in the drawing and
+        # in the node's measured width, and set nothing.
+        remainder, attrs = _parse_attrs(stripped, number)
+        body, label = _split_label(remainder)
+        # `a: "two words"` means the label is `two words`. Leaving the quotes
+        # on put them in the drawing and in the width too.
+        label = _unquote(label)
         if not body:
             raise KgSyntaxError("nothing before the label", number)
 

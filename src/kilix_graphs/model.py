@@ -8,6 +8,7 @@ several engines and compared.
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Iterable, Iterator
 
@@ -19,6 +20,7 @@ __all__ = [
     "Node",
     "Shape",
     "Size",
+    "display_width",
     "measure_label",
 ]
 
@@ -66,6 +68,28 @@ class Size:
     h: float
 
 
+def display_width(text: str) -> int:
+    """How many terminal columns a string occupies.
+
+    A CJK character is two columns wide and a combining mark is zero, so
+    `len()` is the wrong measure for anything but ASCII: a node sized by
+    character count comes out half the width its label needs, and every cell
+    after it in the row is off by one.
+
+    The embedded soft-raster faces cover ASCII 32..126 only and draw anything
+    else as `?`, so in the raster backend a wide character is one `?` in a box
+    sized for two columns. That is a font limitation, not a measurement one --
+    measuring by display width is what keeps the text backend, where the
+    terminal's own font draws the glyph, correct.
+    """
+    total = 0
+    for char in text:
+        if unicodedata.combining(char):
+            continue
+        total += 2 if unicodedata.east_asian_width(char) in ("W", "F") else 1
+    return total
+
+
 def measure_label(label: str, scale: int = 1) -> Size:
     """Size a node from its label.
 
@@ -74,7 +98,7 @@ def measure_label(label: str, scale: int = 1) -> Size:
     text is a node, not nothing.
     """
     lines = label.split("\n") if label else [""]
-    widest = max((len(line) for line in lines), default=0)
+    widest = max((display_width(line) for line in lines), default=0)
     w = widest * FONT_ADVANCE * scale + 2 * LABEL_PAD_X
     h = len(lines) * FONT_HEIGHT * scale + 2 * LABEL_PAD_Y
     return Size(max(w, MIN_NODE_W), max(h, MIN_NODE_H))

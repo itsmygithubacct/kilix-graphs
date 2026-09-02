@@ -78,7 +78,8 @@ terminal {shape=box}
   `a -> b -> c`.
 - A trailing `: text` labels what precedes it — the edge on an edge line, the
   node on a node line.
-- `{key=value, ...}` sets attributes. `label` and `shape` are lifted onto the
+- `{key=value, ...}` sets attributes, and may follow a label:
+  `disk: Cold storage {shape=box}`. `label` and `shape` are lifted onto the
   node.
 - `group id: Label` opens a cluster; indented lines are its members, and
   groups nest.
@@ -178,6 +179,11 @@ difference is measurable by anyone who wants to make the trade.
   force-layout edges are straight lines clipped to the node outlines.
 - Reading SVG. Writing it is a small exporter; parsing it is a different
   project.
+- Non-ASCII text **in the pixel backend**. The two faces soft-raster embeds
+  cover ASCII 32..126 and draw anything else as `?`. Labels are still
+  *measured* by display width, so a CJK label is sized and laid out correctly
+  and renders properly in the text and SVG backends — it is the bitmap font
+  that cannot draw it, not the layout that does not know about it.
 
 ## Development
 
@@ -187,7 +193,7 @@ make test-raster   # the same suite with soft-raster on the path
 make examples      # render examples/ into build/
 ```
 
-The suite is 123 tests. The raster ones skip when `soft-raster` is absent
+The suite is 128 tests. The raster ones skip when `soft-raster` is absent
 rather than failing, so `make check` is still a meaningful run anywhere.
 
 ## Licence

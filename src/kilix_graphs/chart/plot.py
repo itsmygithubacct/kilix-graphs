@@ -60,10 +60,14 @@ class Axis:
     domain: tuple[float, float] | None = None
     ticks: int = 6
     grid: bool = True
-    #: Start a value axis at zero. True is right for bars and area, where the
-    #: bar length *is* the value; false for a line showing variation in a
-    #: narrow band, where zero would flatten it into a straight line.
-    zero: bool = True
+    #: Start a value axis at zero. None decides from the marks: a bar or an
+    #: area encodes its value as a *length* from the baseline, so leaving zero
+    #: out misstates every comparison on it and the choice is not offered;
+    #: a line or a dot encodes position, and forcing zero on a series that
+    #: varies in a narrow band flattens it into a straight line -- measured on
+    #: [1.00001, 1.00002], which came out as one horizontal stroke at the top
+    #: of an axis running 0 to 1. True and False override the inference.
+    zero: bool | None = None
 
 
 @dataclass
@@ -170,7 +174,11 @@ def _value_domain(chart: Chart) -> tuple[float, float]:
         return axis.domain
     # A bar's length is its value, so a bar chart that does not start at zero
     # misstates every comparison on it. That is not a preference.
-    if axis.zero or any(s.mark in ("bar", "area") for s in chart.series):
+    # A bar or an area encodes its value as a length from the baseline, so an
+    # axis that leaves zero out misstates every comparison on it. That is not
+    # offered as a choice: `zero=False` beside a bar is overridden.
+    encodes_length = any(s.mark in ("bar", "area") for s in chart.series)
+    if encodes_length or axis.zero:
         lo = min(lo, 0.0)
         hi = max(hi, 0.0)
     if lo == hi:

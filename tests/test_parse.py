@@ -82,6 +82,16 @@ class KgTests(unittest.TestCase):
         self.assertEqual(graph.nodes["disk"].label, "Cold storage")
         self.assertEqual(graph.nodes["disk"].shape, Shape.ROUND)
 
+    def test_a_label_and_attributes_on_one_line(self) -> None:
+        graph = kg.loads("disk: Cold storage {shape=box}")
+        self.assertEqual(graph.nodes["disk"].label, "Cold storage")
+        self.assertEqual(graph.nodes["disk"].shape, Shape.BOX)
+
+    def test_a_quoted_label_loses_its_quotes(self) -> None:
+        graph = kg.loads('a: "two words"\nb -> a: "an edge"')
+        self.assertEqual(graph.nodes["a"].label, "two words")
+        self.assertEqual(graph.edges[0].label, "an edge")
+
     def test_groups_nest_by_indentation(self) -> None:
         graph = kg.loads(
             "group outer: Outer\n"

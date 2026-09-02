@@ -25,6 +25,16 @@ class MeasureTests(unittest.TestCase):
         self.assertGreater(size.w, 0)
         self.assertGreater(size.h, 0)
 
+    def test_wide_characters_are_measured_as_two_columns(self) -> None:
+        """A CJK label sized by character count comes out half as wide as it
+        renders, and every cell after it in the row is off by one."""
+        from kilix_graphs.model import display_width
+
+        self.assertEqual(display_width("abc"), 3)
+        self.assertEqual(display_width("日本語"), 6)
+        self.assertEqual(display_width("e\u0301"), 1)  # combining acute
+        self.assertEqual(measure_label("日本語").w, measure_label("aaaaaa").w)
+
     def test_a_circle_is_square(self) -> None:
         node = Node(id="n", label="a much longer label", shape=Shape.CIRCLE)
         node.measure()

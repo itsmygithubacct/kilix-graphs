@@ -150,6 +150,30 @@ class ChartTests(unittest.TestCase):
         ]
         self.assertNotIn(0.0, labels)
 
+    def test_a_line_does_not_force_zero_by_default(self) -> None:
+        """Forcing zero on a line that varies in a narrow band flattens it.
+        Measured on [1.00001, 1.00002]: one horizontal stroke at the top of an
+        axis running 0 to 1."""
+        chart = Chart(categories=["a", "b"], theme=DARK)
+        chart.add("s", [1.00001, 1.00002], "line")
+        ys = [
+            op.y
+            for op in compose_chart(chart)
+            if isinstance(op, Text) and op.value.replace(".", "").isdigit()
+        ]
+        self.assertGreater(len(set(ys)), 1)
+
+    def test_a_bar_overrides_a_request_to_leave_zero_out(self) -> None:
+        chart = Chart(categories=["a", "b"], theme=DARK)
+        chart.add("s", [100.0, 110.0], "bar")
+        chart.y = Axis(zero=False)
+        labels = [
+            float(op.value)
+            for op in compose_chart(chart)
+            if isinstance(op, Text) and op.value.replace("-", "").replace(".", "").isdigit()
+        ]
+        self.assertIn(0.0, labels)
+
     def test_bars_are_square_where_they_meet_the_baseline(self) -> None:
         chart = self._chart("bar", series=1)
         rects = [op for op in compose_chart(chart) if isinstance(op, Rect) and op.layer == 20]

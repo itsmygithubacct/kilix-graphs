@@ -20,7 +20,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from ..model import FONT_ADVANCE, FONT_HEIGHT
+from ..model import FONT_ADVANCE, FONT_HEIGHT, display_width
 from ..scene import Anchor, Ellipse, Polygon, Polyline, Rect, Scene, Text
 
 __all__ = ["ASCII", "Charset", "TextOptions", "UNICODE", "render_text"]
@@ -107,6 +107,12 @@ class TextOptions:
     colour: bool = False
     max_columns: int = 400
     max_rows: int = 200
+
+
+#: Written into the cell a wide glyph spills into. It emits nothing, because
+#: the glyph itself already covers that column -- a space there would push the
+#: rest of the row one column right.
+CONTINUATION = "\0"
 
 
 class _Grid:
@@ -567,17 +573,18 @@ def _text(grid: _Grid, op: Text, to_cell, options: TextOptions) -> None:
     start_row = row - (len(lines) - 1) // 2
 
     def begin_at(line: str) -> int:
+        width = display_width(line)
         if op.anchor == Anchor.MIDDLE:
-            return col - len(line) // 2
+            return col - width // 2
         if op.anchor == Anchor.END:
-            return col - len(line)
+            return col - width
         return col
 
     def clear(shift: int) -> bool:
         for offset, line in enumerate(lines):
             r = start_row + offset + shift
             begin = begin_at(line)
-            for index in range(len(line)):
+            for index in range(display_width(line)):
                 c = begin + index
                 if grid.inside(c, r) and grid.solid[r][c]:
                     return False
@@ -585,25 +592,39 @@ def _text(grid: _Grid, op: Text, to_cell, options: TextOptions) -> None:
 
     shift = next((candidate for candidate in (0, 1, -1, 2, -2, 3, -3) if clear(candidate)), 0)
     for offset, line in enumerate(lines):
-        begin = begin_at(line)
-        for index, char in enumerate(line):
-            grid.put(begin + index, start_row + offset + shift, char, op.style.fill)
+        column = begin_at(line)
+        row = start_row + offset + shift
+        for char in line:
+            width = display_width(char)
+            if width == 0:
+                continue
+            grid.put(column, row, char, op.style.fill)
+            if width > 1:
+                # A wide glyph occupies the next column too. Claiming it stops
+                # something else being written under the glyph's right half,
+                # and the continuation emits nothing rather than a space --
+                # a space there would render the row one column too wide.
+                grid.put(column + 1, row, CONTINUATION, op.style.fill)
+            column += width
 
 
 def _emit(grid: _Grid, options: TextOptions) -> str:
     rows: list[str] = []
     for row in range(grid.rows):
         if not options.colour:
-            rows.append("".join(grid.chars[row]).rstrip())
+            rows.append("".join(grid.chars[row]).replace(CONTINUATION, "").rstrip())
             continue
         pieces: list[str] = []
         current: int | None = None
         for col in range(grid.columns):
-            want = grid.colour[row][col] if grid.chars[row][col] != " " else None
+            char = grid.chars[row][col]
+            if char == CONTINUATION:
+                continue
+            want = grid.colour[row][col] if char != " " else None
             if want != current:
                 pieces.append("\x1b[0m" if want is None else _ansi(want))
                 current = want
-            pieces.append(grid.chars[row][col])
+            pieces.append(char)
         if current is not None:
             pieces.append("\x1b[0m")
         rows.append("".join(pieces).rstrip())

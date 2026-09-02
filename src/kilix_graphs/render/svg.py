@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from xml.sax.saxutils import escape
 
-from ..model import FONT_ADVANCE, FONT_HEIGHT
+from ..model import FONT_ADVANCE, FONT_HEIGHT, display_width
 from ..scene import Anchor, Ellipse, Op, Polygon, Polyline, Rect, Scene, Text
 
 __all__ = ["render_svg"]
@@ -108,5 +108,5 @@ def _text(op: Text, font: str) -> list[str]:
 
 def text_advance(text: str, scale: int = 1) -> float:
     """Width of a string in scene units, matching the embedded font."""
-    widest = max((len(line) for line in text.split("\n")), default=0)
+    widest = max((display_width(line) for line in text.split("\n")), default=0)
     return widest * FONT_ADVANCE * scale
