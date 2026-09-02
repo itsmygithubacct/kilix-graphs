@@ -1,0 +1,18 @@
+# The Kilix frame path, as a graph.
+digraph FramePath
+
+group capture: Capture
+    camera -> rtsp: h264
+    rtsp -> decode
+
+group render: Render
+    decode -> raster: RGBA
+    raster -> present
+
+group transport: Transport
+    present -> shm: t=s
+    present -> inline: "t=d,o=z"
+    shm -> terminal
+    inline -> terminal
+
+terminal {shape=box}

@@ -1,0 +1,18 @@
+// A state machine, in the format everything else already speaks.
+digraph Session {
+  node [shape=round];
+
+  start   [shape=point];
+  idle    [label="idle"];
+  running [label="running"];
+  paused  [label="paused"];
+  done    [label="done", shape=circle];
+
+  start   -> idle;
+  idle    -> running [label="run"];
+  running -> paused  [label="pause"];
+  paused  -> running [label="resume"];
+  running -> done    [label="finish"];
+  paused  -> idle    [label="reset", style=dashed];
+  running -> running [label="tick"];
+}
