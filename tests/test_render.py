@@ -111,6 +111,49 @@ class TextBackendTests(unittest.TestCase):
         self.assertLessEqual(max(len(line) for line in lines), 20)
 
 
+class TextChartTests(unittest.TestCase):
+    """A chart in a cell grid needs a different treatment from a graph."""
+
+    def _chart_text(self, mark: str = "line", **kwargs: object) -> str:
+        from kilix_graphs.chart import Chart, compose_chart
+
+        chart = Chart(
+            title="t", categories=["a", "b", "c", "d"], width=480, height=240
+        )
+        chart.add("one", [1.0, 3.0, 2.0, 4.0], mark)
+        return render_text(compose_chart(chart), TextOptions(**kwargs))  # type: ignore[arg-type]
+
+    def test_gridlines_are_dropped(self) -> None:
+        """A gridline in a cell grid is as loud as the data crossing it."""
+        drawing = self._chart_text()
+        # A dropped grid leaves rows that are the axis and its label only.
+        rows = [line for line in drawing.splitlines() if "│" in line]
+        self.assertTrue(rows)
+        self.assertFalse(any(line.count("─") > 20 and "└" not in line for line in rows))
+
+    def test_a_line_is_plotted_at_sub_cell_resolution(self) -> None:
+        drawing = self._chart_text()
+        self.assertTrue(
+            any(0x2800 <= ord(char) <= 0x28FF for char in drawing),
+            "expected braille dots in the plotted line",
+        )
+
+    def test_ascii_falls_back_to_markers_rather_than_braille(self) -> None:
+        drawing = self._chart_text(charset=ASCII)
+        self.assertTrue(drawing.isascii())
+        self.assertIn("*", drawing)
+
+    def test_bars_are_solid(self) -> None:
+        self.assertIn("█", self._chart_text("bar"))
+        self.assertIn("#", self._chart_text("bar", charset=ASCII))
+
+    def test_the_axis_and_its_labels_survive(self) -> None:
+        drawing = self._chart_text()
+        self.assertIn("└", drawing)
+        for label in ("a", "b", "c", "d"):
+            self.assertIn(label, drawing)
+
+
 class SvgTests(unittest.TestCase):
     def test_a_document_is_well_formed_and_sized(self) -> None:
         from xml.etree import ElementTree

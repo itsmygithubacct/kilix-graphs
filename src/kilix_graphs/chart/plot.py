@@ -204,8 +204,8 @@ def _axes(
     categories: list[str],
 ) -> None:
     theme = chart.theme
-    grid_style = Style(stroke=theme.grid, width=1.0)
-    axis_style = Style(stroke=theme.axis, width=1.0)
+    grid_style = Style(stroke=theme.grid, width=1.0, role="grid")
+    axis_style = Style(stroke=theme.axis, width=1.0, role="axis")
     label_style = Style(fill=theme.ink_muted)
 
     step = y_scale.tick_step(chart.y.ticks)
@@ -283,7 +283,7 @@ def _line(
         Polyline(
             points=tuple(points),
             layer=20,
-            style=Style(stroke=colour, width=LINE_WIDTH),
+            style=Style(stroke=colour, width=LINE_WIDTH, role="data"),
         )
     )
 
@@ -311,7 +311,7 @@ def _area(
         Polygon(
             points=tuple(outline),
             layer=15,
-            style=Style(fill=colour, alpha=0.22),
+            style=Style(fill=colour, alpha=0.22, role="data"),
         )
     )
 
@@ -332,7 +332,7 @@ def _scatter(
                 rx=MARKER_RADIUS,
                 ry=MARKER_RADIUS,
                 layer=22,
-                style=Style(fill=colour, stroke=None),
+                style=Style(fill=colour, stroke=None, role="data"),
             )
         )
 
@@ -361,7 +361,7 @@ def _bars(
         height = abs(y - zero)
         if height <= 0:
             continue
-        style = Style(fill=colour, stroke=None)
+        style = Style(fill=colour, stroke=None, role="data")
         # A bar is rounded at the *data* end and square where it meets the
         # baseline: rounding the baseline end lifts the bar off its own axis
         # and makes short bars look like they start above zero. The scene's
@@ -395,7 +395,10 @@ def _legend(scene: Scene, chart: Chart, left: float, y: float) -> None:
                 h=10,
                 radius=2,
                 layer=40,
-                style=Style(fill=colour, stroke=None),
+                # A swatch *is* the series colour, so it takes the data path:
+                # in a cell grid it becomes one filled block rather than a
+                # three-row outlined box beside a one-row label.
+                style=Style(fill=colour, stroke=None, role="data"),
             )
         )
         scene.add(

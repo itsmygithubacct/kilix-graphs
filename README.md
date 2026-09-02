@@ -41,7 +41,9 @@ degraded version of the other: they are two renderers over one scene.
   https://github.com/itsmygithubacct/soft-raster), to a cell grid with Unicode
   box drawing or plain ASCII, or to SVG.
 - **Charts** too: line, bar, scatter and area over the same scene and the same
-  renderers.
+  renderers. In a cell grid the gridlines are dropped and lines are plotted on
+  a braille sub-cell dot grid, because a gridline made of characters is as
+  loud as the data crossing it.
 
 ## Install
 
@@ -184,7 +186,7 @@ make test-raster   # the same suite with soft-raster on the path
 make examples      # render examples/ into build/
 ```
 
-The suite is 112 tests. The raster ones skip when `soft-raster` is absent
+The suite is 117 tests. The raster ones skip when `soft-raster` is absent
 rather than failing, so `make check` is still a meaningful run anywhere.
 
 ## Licence

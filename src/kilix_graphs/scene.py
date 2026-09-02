@@ -52,6 +52,12 @@ class Style:
     dash: tuple[int, int] = (0, 0)
     #: Integer font multiplier for Text; ignored elsewhere.
     scale: int = 1
+    #: What this operation is for: "" (structure), "grid", "axis" or "data".
+    #: The raster and SVG backends express recessiveness with colour and
+    #: draw everything. A cell grid cannot -- a gridline and a data line are
+    #: both one character -- so it needs to know which is which: it drops the
+    #: grid and plots data at sub-cell resolution.
+    role: str = ""
 
     def with_(self, **kwargs: object) -> "Style":
         return replace(self, **kwargs)  # type: ignore[arg-type]

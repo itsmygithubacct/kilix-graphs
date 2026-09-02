@@ -156,8 +156,20 @@ def render_text(scene: Scene, opts: TextOptions | None = None) -> str:
     arrows: list[tuple[tuple[tuple[float, float], ...], int | None]] = []
     fixed: list[Text] = []
     floating: list[Text] = []
+    dots = _Braille(columns, rows) if charset is UNICODE else None
+
     for op in scene.ordered():
         colour = op.style.stroke if op.style.stroke is not None else op.style.fill
+        # A cell grid has one weight of line. A gridline drawn in it is as loud
+        # as the data crossing it, and the chart becomes unreadable -- measured:
+        # a seven-point two-series line chart came out as a solid block of box
+        # drawing with no data visible in it. Chrome that exists to recede is
+        # dropped rather than drawn.
+        if op.style.role == "grid":
+            continue
+        if op.style.role == "data":
+            _data(grid, dots, charset, op, to_cell, options, colour)
+            continue
         if isinstance(op, Rect):
             _box(grid, charset,
                  *_centred(op.x + op.w / 2, op.y + op.h / 2, op.w, op.h, options),
@@ -181,6 +193,9 @@ def render_text(scene: Scene, opts: TextOptions | None = None) -> str:
         _text(grid, op, to_cell, options)
     for op in floating:
         _text(grid, op, to_cell, options)
+
+    if dots is not None:
+        dots.flush(grid)
 
     # Line cells resolve last: a junction glyph depends on every segment that
     # reached that cell, so it cannot be chosen while segments are still
@@ -275,6 +290,115 @@ def _orthogonal(cells: list[tuple[int, int]]) -> list[tuple[int, int]]:
         else:
             mid = ax + (bx - ax) // 2
             out.extend([(mid, ay), (mid, by), (bx, by)])
+    return out
+
+
+class _Braille:
+    """A 2x4 sub-cell dot grid, rendered as U+28xx.
+
+    Chart data at whole-cell resolution is a staircase; eight dots per cell is
+    what makes a line in a terminal look like a line. It is the same trick
+    `plotext` uses, and it is only available in the Unicode charset -- the
+    ASCII fallback plots a marker per cell instead.
+    """
+
+    __slots__ = ("columns", "rows", "bits", "colour")
+
+    #: Braille dot values by (row within cell, column within cell).
+    MASK = ((0x01, 0x08), (0x02, 0x10), (0x04, 0x20), (0x40, 0x80))
+
+    def __init__(self, columns: int, rows: int) -> None:
+        self.columns = columns
+        self.rows = rows
+        self.bits = [[0] * columns for _ in range(rows)]
+        self.colour: list[list[int | None]] = [[None] * columns for _ in range(rows)]
+
+    def set(self, dot_x: int, dot_y: int, colour: int | None) -> None:
+        col, within_x = divmod(dot_x, 2)
+        row, within_y = divmod(dot_y, 4)
+        if not (0 <= col < self.columns and 0 <= row < self.rows):
+            return
+        self.bits[row][col] |= self.MASK[within_y][within_x]
+        if self.colour[row][col] is None:
+            self.colour[row][col] = colour
+
+    def flush(self, grid: "_Grid") -> None:
+        for row in range(self.rows):
+            for col in range(self.columns):
+                mask = self.bits[row][col]
+                if mask:
+                    grid.put(col, row, chr(0x2800 + mask), self.colour[row][col])
+
+
+def _data(
+    grid: _Grid,
+    dots: "_Braille | None",
+    charset: Charset,
+    op: object,
+    to_cell,
+    options: TextOptions,
+    colour: int | None,
+) -> None:
+    """Chart marks: sub-cell dots where the charset allows, blocks otherwise."""
+    if isinstance(op, Rect):
+        # A bar is a solid column. Half blocks would be better and are not
+        # available in the ASCII charset, so both use whole cells.
+        block = "\u2588" if charset is UNICODE else "#"
+        x0, y0 = to_cell(op.x, op.y)
+        x1, y1 = to_cell(op.x + op.w, op.y + op.h)
+        for row in range(y0, max(y0 + 1, y1)):
+            for col in range(x0, max(x0 + 1, x1)):
+                grid.put(col, row, block, colour)
+        return
+
+    if isinstance(op, Ellipse):
+        if dots is not None:
+            dots.set(*_dot(op.cx, op.cy, options), colour)
+        else:
+            grid.put(*to_cell(op.cx, op.cy), "o", colour)
+        return
+
+    points = getattr(op, "points", ())
+    if len(points) < 2:
+        return
+    if dots is None:
+        for x, y in points:
+            grid.put(*to_cell(x, y), "*", colour)
+        return
+    for index in range(len(points) - 1):
+        ax, ay = _dot(points[index][0], points[index][1], options)
+        bx, by = _dot(points[index + 1][0], points[index + 1][1], options)
+        for dot_x, dot_y in _dot_line(ax, ay, bx, by):
+            dots.set(dot_x, dot_y, colour)
+
+
+def _dot(x: float, y: float, options: TextOptions) -> tuple[int, int]:
+    return (
+        math.floor(x / options.cell_w * 2),
+        math.floor(y / options.cell_h * 4),
+    )
+
+
+def _dot_line(x0: int, y0: int, x1: int, y1: int) -> list[tuple[int, int]]:
+    out: list[tuple[int, int]] = []
+    dx, dy = abs(x1 - x0), -abs(y1 - y0)
+    sx = 1 if x0 < x1 else -1
+    sy = 1 if y0 < y1 else -1
+    error = dx + dy
+    x, y = x0, y0
+    guard = dx - dy + 4
+    while guard >= 0:
+        out.append((x, y))
+        if x == x1 and y == y1:
+            break
+        doubled = 2 * error
+        if doubled >= dy:
+            error += dy
+            x += sx
+        if doubled <= dx:
+            error += dx
+            y += sy
+        guard -= 1
     return out
 
 

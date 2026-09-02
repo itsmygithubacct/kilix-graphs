@@ -24,9 +24,11 @@ First release.
   box drawing or plain ASCII, and SVG. Backend selection is a terminal
   capability probe, not a flag.
 - Charts: linear, log, band and point scales, the d3 tick algorithm, and line,
-  bar, scatter and area marks.
+  bar, scatter and area marks. A scene operation declares its role -- grid,
+  axis or data -- so the cell renderer can drop chrome it cannot make
+  recessive and plot the data on a braille sub-cell grid instead.
 - Two themes, both validated for colourblind separation, lightness band and
   contrast against their own surface.
 - A five-verb command: `draw`, `chart`, `convert`, `layout`, `doctor`.
-- 112 tests, no runtime dependencies. The raster tests skip rather than fail
+- 117 tests, no runtime dependencies. The raster tests skip rather than fail
   where soft-raster is absent.
