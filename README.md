@@ -90,6 +90,7 @@ terminal {shape=box}
 kilix-graphs draw     graph.kg                  # to the terminal
 kilix-graphs draw     graph.dot -o out.png      # or .ppm, .svg, or text
 kilix-graphs draw     graph.kg -e force -d LR   # engine and direction
+kilix-graphs draw     graph.dot --ranker longest-path   # compare rankers
 kilix-graphs chart    data.csv -m bar --title "Frame budget"
 kilix-graphs convert  graph.kg --to dot
 kilix-graphs layout   graph.kg                  # positions as JSON, no renderer
@@ -156,7 +157,7 @@ published algorithm:
 | Phase | Algorithm |
 | --- | --- |
 | Acyclic | greedy feedback-arc set (Eades, Lin & Smyth 1993) |
-| Rank | longest path, then coordinate descent on the slack |
+| Rank | network simplex (Gansner et al. 1993), exact |
 | Normalise | a dummy node per rank an edge crosses |
 | Order | barycentre sweeps, best by weighted crossing count (Barth, Jünger & Mutzel) |
 | Position | Brandes & Köpf, "Fast and Simple Horizontal Coordinate Assignment" |
@@ -166,9 +167,14 @@ Normalisation is why edge routing is nearly free: a long edge is *already* a
 chain of dummy nodes with coordinates, so joining them is a route that
 provably misses every node.
 
-Ranking uses coordinate descent rather than network simplex. It is honest
-about that — the objective is exposed as `total_edge_length()`, so the
-difference is measurable by anyone who wants to make the trade.
+Ranking is exact. `--ranker` also offers `longest-path` and the
+`coordinate-descent` local search that came before it, because a claim of
+optimality is only worth something if the alternative is still runnable: the
+exact ranker matches a brute-force optimum on every small graph tested, while
+coordinate descent missed it on 19 of 111, and on a 150-node graph the exact
+one is both **35% shorter in total edge length and faster** — a better ranking
+makes fewer dummy nodes, and the ordering and positioning phases get the time
+back.
 
 ### What it does not do
 
@@ -193,7 +199,7 @@ make test-raster   # the same suite with soft-raster on the path
 make examples      # render examples/ into build/
 ```
 
-The suite is 128 tests. The raster ones skip when `soft-raster` is absent
+The suite is 134 tests. The raster ones skip when `soft-raster` is absent
 rather than failing, so `make check` is still a meaningful run anywhere.
 
 ## Licence

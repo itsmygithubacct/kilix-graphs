@@ -193,6 +193,8 @@ def _layout_options(args: argparse.Namespace) -> dict[str, object]:
             options["nodesep"] = args.nodesep
         if args.ranksep is not None:
             options["ranksep"] = args.ranksep
+        if getattr(args, "ranker", None):
+            options["ranker"] = args.ranker
     elif args.engine == "tree":
         options["direction"] = args.direction
         if args.nodesep is not None:
@@ -408,6 +410,11 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_argument("-d", "--direction", default="TB", choices=("TB", "BT", "LR", "RL"))
         sub.add_argument("--nodesep", type=float)
         sub.add_argument("--ranksep", type=float)
+        sub.add_argument(
+            "--ranker",
+            choices=("network-simplex", "coordinate-descent", "longest-path"),
+            help="layered ranking; the default is exact",
+        )
         sub.add_argument(
             "-f", "--format", choices=parse.FORMATS,
             help="input format (detected from the name or the content by default)",

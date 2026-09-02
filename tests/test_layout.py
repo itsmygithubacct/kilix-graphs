@@ -258,6 +258,105 @@ class RankingTests(unittest.TestCase):
             )
 
 
+class NetworkSimplexTests(unittest.TestCase):
+    """The ranker minimises the weighted sum of rank spans exactly.
+
+    "Exactly" is the whole claim, so it is checked against a brute-force
+    optimum rather than against itself.
+    """
+
+    def _work(self, nodes, arcs):
+        work = layered_module._W()
+        for name in nodes:
+            work.nodes[name] = layered_module._N(id=name, w=10.0, h=10.0)
+        for tail, head, weight, minlen in arcs:
+            work.edges.append((tail, head, weight, minlen))
+        work.index()
+        return work
+
+    def _optimum(self, nodes, arcs, span):
+        import itertools
+
+        best = None
+        for ranks in itertools.product(range(span), repeat=len(nodes)):
+            assignment = dict(zip(nodes, ranks))
+            if any(
+                assignment[h] - assignment[t] < m for t, h, _, m in arcs
+            ):
+                continue
+            cost = sum(w * (assignment[h] - assignment[t]) for t, h, w, _ in arcs)
+            if best is None or cost < best:
+                best = cost
+        return best
+
+    def test_it_reaches_the_true_optimum(self) -> None:
+        import random
+
+        # Small graphs and few of them: the brute force is exponential in the
+        # node count, and this has to stay a unit test. Sixty trials at five
+        # nodes cost 3.4 seconds; these cost a tenth of that and still cover
+        # the cases the local search used to get wrong.
+        random.seed(3)
+        checked = 0
+        for _ in range(40):
+            count = random.randint(2, 4)
+            nodes = [f"v{i}" for i in range(count)]
+            arcs = [
+                (nodes[i], nodes[j], float(random.randint(1, 3)), random.randint(1, 2))
+                for i in range(count)
+                for j in range(i + 1, count)
+                if random.random() < 0.5
+            ]
+            if not arcs:
+                continue
+            checked += 1
+            work = self._work(nodes, arcs)
+            layered_module._network_simplex(work, 200)
+            for tail, head, _, minlen in arcs:
+                self.assertGreaterEqual(
+                    work.nodes[head].rank - work.nodes[tail].rank, minlen
+                )
+            self.assertEqual(
+                layered_module.total_edge_length(work),
+                self._optimum(nodes, arcs, 2 * count + 2),
+            )
+        self.assertGreater(checked, 15)
+
+    def test_it_beats_the_local_search_it_replaced(self) -> None:
+        arcs = [
+            ("a", "d", 1.0, 1), ("b", "d", 1.0, 1), ("c", "d", 1.0, 1),
+            ("a", "e", 5.0, 1), ("d", "e", 1.0, 1), ("b", "c", 1.0, 1),
+        ]
+        nodes = ["a", "b", "c", "d", "e"]
+        exact = self._work(nodes, arcs)
+        layered_module._network_simplex(exact, 200)
+        local = self._work(nodes, arcs)
+        layered_module._longest_path(local)
+        layered_module._reduce_slack(local, 8)
+        self.assertLessEqual(
+            layered_module.total_edge_length(exact),
+            layered_module.total_edge_length(local),
+        )
+
+    def test_disconnected_components_each_start_at_rank_zero(self) -> None:
+        work = self._work(
+            ["a", "b", "c", "d"], [("a", "b", 1.0, 1), ("c", "d", 1.0, 1)]
+        )
+        layered_module._network_simplex(work, 50)
+        ranks = {name: node.rank for name, node in work.nodes.items()}
+        self.assertEqual(ranks, {"a": 0, "b": 1, "c": 0, "d": 1})
+
+    def test_an_isolated_node_and_an_empty_graph_are_not_errors(self) -> None:
+        work = self._work(["solo"], [])
+        layered_module._network_simplex(work, 50)
+        self.assertEqual(work.nodes["solo"].rank, 0)
+        layered_module._network_simplex(self._work([], []), 50)
+
+    def test_an_unknown_ranker_is_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            layout.run(parse.loads("a -> b"), "layered", ranker="guesswork")
+
+
 class CrossCountTests(unittest.TestCase):
     def _work(self, edges: list[tuple[str, str]]) -> layered_module._W:
         work = layered_module._W()

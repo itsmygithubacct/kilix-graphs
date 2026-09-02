@@ -14,7 +14,7 @@ First release.
   content.
 - Five layout engines: layered (Sugiyama), force-directed, tree, circular and
   grid. The layered engine is a full five-phase pipeline — greedy
-  feedback-arc set, longest-path ranking with a slack-reduction pass, dummy
+  feedback-arc set, exact network-simplex ranking, dummy
   chains, barycentre ordering scored by the Barth-Junger-Mutzel accumulator
   count, Brandes-Kopf coordinate assignment, and a cluster separation sweep
   that keeps cluster boxes disjoint and nothing inside a group it is not in.
@@ -33,5 +33,5 @@ First release.
 - Two themes, both validated for colourblind separation, lightness band and
   contrast against their own surface.
 - A five-verb command: `draw`, `chart`, `convert`, `layout`, `doctor`.
-- 128 tests, no runtime dependencies. The raster tests skip rather than fail
+- 134 tests, no runtime dependencies. The raster tests skip rather than fail
   where soft-raster is absent.

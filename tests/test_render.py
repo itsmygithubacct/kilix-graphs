@@ -98,6 +98,13 @@ class TextBackendTests(unittest.TestCase):
     def test_a_directed_edge_ends_in_an_arrow(self) -> None:
         self.assertIn("▼", drawn("a -> b"))
 
+    def test_a_point_node_is_a_dot_not_an_empty_box(self) -> None:
+        drawing = drawn("start {shape=point}\nstart -> idle")
+        self.assertIn("●", drawing)
+        self.assertNotIn("╭─╮", drawing)  # the 3x3 outline it used to draw
+        ascii_drawing = drawn("start {shape=point}\nstart -> idle", charset=ASCII)
+        self.assertIn("o", ascii_drawing)
+
     def test_colour_emits_ansi_and_resets(self) -> None:
         drawing = drawn("a -> b", colour=True)
         self.assertIn("\x1b[38;2;", drawing)

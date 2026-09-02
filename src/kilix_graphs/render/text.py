@@ -41,6 +41,9 @@ class Charset:
     corner_tr: str
     corner_bl: str
     corner_br: str
+    #: A shape smaller than a cell. A point node drawn as a box is a 3x3
+    #: outline around nothing, which reads as an empty node rather than a dot.
+    dot: str
 
 
 def _junctions(
@@ -79,6 +82,7 @@ UNICODE = Charset(
     corner_tr="╮",
     corner_bl="╰",
     corner_br="╯",
+    dot="●",
 )
 
 ASCII = Charset(
@@ -92,6 +96,7 @@ ASCII = Charset(
     corner_tr="+",
     corner_bl="+",
     corner_br="+",
+    dot="o",
 )
 
 CHARSETS = {"unicode": UNICODE, "ascii": ASCII}
@@ -177,13 +182,21 @@ def render_text(scene: Scene, opts: TextOptions | None = None) -> str:
             _data(grid, dots, charset, op, to_cell, options, colour)
             continue
         if isinstance(op, Rect):
-            _box(grid, charset,
-                 *_centred(op.x + op.w / 2, op.y + op.h / 2, op.w, op.h, options),
-                 colour, rounded=op.radius > 0)
+            if op.w <= options.cell_w and op.h <= options.cell_h:
+                grid.put(*to_cell(op.x + op.w / 2, op.y + op.h / 2), charset.dot, colour)
+            else:
+                _box(grid, charset,
+                     *_centred(op.x + op.w / 2, op.y + op.h / 2, op.w, op.h, options),
+                     colour, rounded=op.radius > 0)
         elif isinstance(op, Ellipse):
-            _box(grid, charset,
-                 *_centred(op.cx, op.cy, op.rx * 2, op.ry * 2, options),
-                 colour, rounded=True)
+            if op.rx * 2 <= options.cell_w and op.ry * 2 <= options.cell_h:
+                # A point node is 8 units across -- one cell. Boxing it gives a
+                # 3x3 outline around nothing, which reads as an empty node.
+                grid.put(*to_cell(op.cx, op.cy), charset.dot, colour)
+            else:
+                _box(grid, charset,
+                     *_centred(op.cx, op.cy, op.rx * 2, op.ry * 2, options),
+                     colour, rounded=True)
         elif isinstance(op, Polyline):
             _polyline(grid, _orthogonal([to_cell(x, y) for x, y in op.points]), colour)
         elif isinstance(op, Polygon):
