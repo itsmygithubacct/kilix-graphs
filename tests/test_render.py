@@ -105,6 +105,32 @@ class TextBackendTests(unittest.TestCase):
         ascii_drawing = drawn("start {shape=point}\nstart -> idle", charset=ASCII)
         self.assertIn("o", ascii_drawing)
 
+    def test_a_self_loop_is_one_glyph(self) -> None:
+        """A four-point lobe inside five columns orthogonalises into a knot of
+        junctions drawn across the node it belongs to."""
+        drawing = drawn("a -> a: retry\na -> b")
+        self.assertIn("↺", drawing)
+        self.assertIn("retry", drawing)  # and the label is not clipped off
+        self.assertIn("@", drawn("a -> a", charset=ASCII))
+
+    def test_a_label_at_the_edge_is_inside_the_canvas(self) -> None:
+        from kilix_graphs.scene import text_extent
+
+        graph = parse.loads(
+            "a -> a: a rather long loop label\n"
+            "left -> right: a label that starts before every node\n"
+            "right -> a\n"
+        )
+        layout.run(graph, "layered")
+        scene = compose(graph)
+        for op in scene:
+            if isinstance(op, Text):
+                left, top, right, bottom = text_extent(op)
+                self.assertGreaterEqual(left, 0.0)
+                self.assertGreaterEqual(top, 0.0)
+                self.assertLessEqual(right, scene.width)
+                self.assertLessEqual(bottom, scene.height)
+
     def test_colour_emits_ansi_and_resets(self) -> None:
         drawing = drawn("a -> b", colour=True)
         self.assertIn("\x1b[38;2;", drawing)

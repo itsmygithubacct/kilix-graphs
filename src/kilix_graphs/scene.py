@@ -18,6 +18,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import Iterable, Iterator, Sequence
 
+from .model import FONT_ADVANCE, FONT_HEIGHT, display_width
+
 __all__ = [
     "Anchor",
     "Ellipse",
@@ -28,6 +30,7 @@ __all__ = [
     "Scene",
     "Style",
     "Text",
+    "text_extent",
 ]
 
 
@@ -174,10 +177,43 @@ class Scene:
                 for px, py in op.points:
                     span(px, py, px, py)
             elif isinstance(op, Text):
-                span(op.x, op.y, op.x, op.y)
+                # A label is a box, not a point. Measuring it as a point cut
+                # the drawing off at the last node: a self-loop's "retry" came
+                # out as "retr" because nothing had counted the text that
+                # extends past the geometry.
+                x0, y0, x1, y1 = text_extent(op)
+                span(x0, y0, x1, y1)
         if not xs:
             return (0.0, 0.0, 0.0, 0.0)
         return (min(xs), min(ys), max(xs), max(ys))
+
+    def translate(self, dx: float, dy: float) -> "Scene":
+        """Move every operation. Operations are frozen, so this rebuilds them.
+
+        A drawing is laid out from its nodes, and a label can stick out past
+        them -- an edge label on the leftmost edge starts left of every node.
+        Sizing the canvas from the geometry alone clipped it.
+        """
+        if dx == 0.0 and dy == 0.0:
+            return self
+        moved: list[Op] = []
+        for op in self.ops:
+            if isinstance(op, Rect):
+                moved.append(replace(op, x=op.x + dx, y=op.y + dy))
+            elif isinstance(op, Ellipse):
+                moved.append(replace(op, cx=op.cx + dx, cy=op.cy + dy))
+            elif isinstance(op, (Polyline, Polygon)):
+                moved.append(
+                    replace(op, points=tuple((x + dx, y + dy) for x, y in op.points))
+                )
+            elif isinstance(op, Text):
+                moved.append(replace(op, x=op.x + dx, y=op.y + dy))
+            else:  # pragma: no cover - every op type is handled above
+                moved.append(op)
+        self.ops = moved
+        self.width += dx
+        self.height += dy
+        return self
 
     def fit(self, margin: float = 0.0) -> "Scene":
         """Set width/height from the operations actually present."""
@@ -185,6 +221,20 @@ class Scene:
         self.width = max_x + margin
         self.height = max_y + margin
         return self
+
+
+def text_extent(op: Text) -> tuple[float, float, float, float]:
+    """The box a text run occupies, from the embedded font's metrics."""
+    lines = op.value.split("\n") or [""]
+    width = max((display_width(line) for line in lines), default=0) * FONT_ADVANCE * op.style.scale
+    height = len(lines) * FONT_HEIGHT * op.style.scale
+    if op.anchor == Anchor.MIDDLE:
+        left = op.x - width / 2
+    elif op.anchor == Anchor.END:
+        left = op.x - width
+    else:
+        left = op.x
+    return (left, op.y - height / 2, left + width, op.y + height / 2)
 
 
 def polyline_points(points: Sequence[tuple[float, float]]) -> tuple[tuple[float, float], ...]:

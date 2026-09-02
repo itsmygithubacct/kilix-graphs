@@ -108,11 +108,14 @@ def compose(graph: Graph, opts: ComposeOptions | None = None) -> Scene:
     for node in graph.nodes.values():
         _compose_node(scene, node, cluster_colour, options)
 
-    scene.width = max(node.x + node.w / 2 for node in graph.nodes.values()) + options.margin if graph.nodes else 0.0
-    scene.height = max(node.y + node.h / 2 for node in graph.nodes.values()) + options.margin if graph.nodes else 0.0
+    # Put the whole drawing -- labels included -- inside the margin. Layout
+    # normalises the *geometry*, and a label that starts left of every node
+    # then sits at a negative coordinate and gets clipped.
+    min_x, min_y, _, _ = scene.bounds()
+    scene.translate(options.margin - min_x, options.margin - min_y)
     _, _, max_x, max_y = scene.bounds()
-    scene.width = max(scene.width, max_x + options.margin)
-    scene.height = max(scene.height, max_y + options.margin)
+    scene.width = max_x + options.margin
+    scene.height = max_y + options.margin
     return scene
 
 
@@ -282,6 +285,10 @@ def _compose_edge(
         return
 
     attrs = getattr(edge, "attrs", {})
+    # A self-loop is a lobe in pixels and a tangle in cells: four points inside
+    # five columns, orthogonalised into a knot of junctions across the node it
+    # belongs to. Naming it lets the cell renderer draw one glyph instead.
+    role = "loop" if edge.tail == edge.head else ""  # type: ignore[attr-defined]
     colour = parse_colour(attrs["color"]) if attrs.get("color") else theme.edge
     dashed = attrs.get("style") in ("dashed", "dotted")
     dash = (2, 4) if attrs.get("style") == "dotted" else (7, 5) if dashed else (0, 0)
@@ -298,7 +305,9 @@ def _compose_edge(
         Polyline(
             points=tuple(points),
             layer=LAYER_EDGE,
-            style=Style(stroke=colour, width=options.edge_width, dash=dash),
+            style=Style(
+                stroke=colour, width=options.edge_width, dash=dash, role=role
+            ),
         )
     )
     if head:
@@ -306,7 +315,7 @@ def _compose_edge(
             Polygon(
                 points=tuple(head),
                 layer=LAYER_EDGE,
-                style=Style(fill=colour, stroke=None),
+                style=Style(fill=colour, stroke=None, role=role),
             )
         )
 

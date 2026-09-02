@@ -44,6 +44,9 @@ class Charset:
     #: A shape smaller than a cell. A point node drawn as a box is a 3x3
     #: outline around nothing, which reads as an empty node rather than a dot.
     dot: str
+    #: A self-loop. Routed as a poly-line it is a knot of junctions across the
+    #: node it belongs to; one glyph beside the node says the same thing.
+    loop: str
 
 
 def _junctions(
@@ -83,6 +86,7 @@ UNICODE = Charset(
     corner_bl="╰",
     corner_br="╯",
     dot="●",
+    loop="↺",
 )
 
 ASCII = Charset(
@@ -97,6 +101,7 @@ ASCII = Charset(
     corner_bl="+",
     corner_br="+",
     dot="o",
+    loop="@",
 )
 
 CHARSETS = {"unicode": UNICODE, "ascii": ASCII}
@@ -177,6 +182,14 @@ def render_text(scene: Scene, opts: TextOptions | None = None) -> str:
         # drawing with no data visible in it. Chrome that exists to recede is
         # dropped rather than drawn.
         if op.style.role == "grid":
+            continue
+        if op.style.role == "loop":
+            # One glyph, just past the node's right edge. The arrowhead that
+            # comes with the loop is dropped: the glyph already says "returns
+            # here", and in cells the head lands on the outline.
+            if isinstance(op, Polyline) and op.points:
+                far = max(op.points, key=lambda point: point[0])
+                grid.put(*to_cell(far[0], far[1]), charset.loop, colour)
             continue
         if op.style.role == "data":
             _data(grid, dots, charset, op, to_cell, options, colour)
