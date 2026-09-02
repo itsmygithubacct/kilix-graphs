@@ -506,6 +506,29 @@ class OtherEnginesTests(unittest.TestCase):
             self.assertAlmostEqual(first.nodes[name].x, second.nodes[name].x, places=6)
             self.assertAlmostEqual(first.nodes[name].y, second.nodes[name].y, places=6)
 
+    def test_force_stops_when_it_settles_and_still_lays_out(self) -> None:
+        source = "a -- b\nb -- c\nc -- a\nc -- d\nd -- e"
+        quick = parse.loads(source)
+        layout.run(quick, "force")
+        full = parse.loads(source)
+        layout.run(full, "force", settle=0.0)
+        for graph in (quick, full):
+            self.assertEqual(len({(n.x, n.y) for n in graph.nodes.values()}), 5)
+        # The early stop is a speed decision, not a different layout: edges
+        # come out about the same length either way.
+        def mean_edge(graph):
+            lengths = [
+                (
+                    (graph.nodes[e.head].x - graph.nodes[e.tail].x) ** 2
+                    + (graph.nodes[e.head].y - graph.nodes[e.tail].y) ** 2
+                )
+                ** 0.5
+                for e in graph.edges
+            ]
+            return sum(lengths) / len(lengths)
+
+        self.assertLess(abs(mean_edge(quick) - mean_edge(full)) / mean_edge(full), 0.25)
+
     def test_force_separates_coincident_starts(self) -> None:
         graph = parse.loads("a -- b\nc -- d")
         layout.run(graph, "force", ticks=80)

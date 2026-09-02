@@ -33,5 +33,5 @@ First release.
 - Two themes, both validated for colourblind separation, lightness band and
   contrast against their own surface.
 - A five-verb command: `draw`, `chart`, `convert`, `layout`, `doctor`.
-- 139 tests, no runtime dependencies. The raster tests skip rather than fail
+- 140 tests, no runtime dependencies. The raster tests skip rather than fail
   where soft-raster is absent.

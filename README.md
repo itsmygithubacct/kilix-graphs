@@ -205,7 +205,7 @@ make test-raster   # the same suite with soft-raster on the path
 make examples      # render examples/ into build/
 ```
 
-The suite is 139 tests. The raster ones skip when `soft-raster` is absent
+The suite is 140 tests. The raster ones skip when `soft-raster` is absent
 rather than failing, so `make check` is still a meaningful run anywhere.
 
 ## Licence

@@ -46,6 +46,10 @@ class ForceOptions:
     gravity: float = 0.06
     velocity_decay: float = 0.4
     theta: float = 0.9
+    #: Stop early once no node moves further than this in a tick, three ticks
+    #: running. d3 runs its whole schedule because it is animating one; a batch
+    #: layout that has stopped moving has nothing left to compute.
+    settle: float = 0.05
     collide_passes: int = 4
     collide_pad: float = 8.0
     #: Pull a cluster's members toward their own centroid. Without it a
@@ -55,8 +59,16 @@ class ForceOptions:
     cluster_strength: float = 0.35
 
 
-@dataclass
+@dataclass(eq=False)
 class _P:
+    """A body in the simulation.
+
+    ``eq=False`` so that identity, not field equality, decides membership:
+    the quadtree asks whether a leaf holds *this* body, and a generated
+    ``__eq__`` answered that by comparing six floats -- 645,000 times in one
+    200-node layout, and wrongly the moment two bodies coincide.
+    """
+
     x: float
     y: float
     vx: float = 0.0
@@ -68,10 +80,16 @@ class _P:
 class _Quad:
     """A Barnes-Hut quadtree node: either four children or a list of bodies."""
 
-    __slots__ = ("x0", "y0", "x1", "y1", "children", "bodies", "mass", "cx", "cy")
+    __slots__ = (
+        "x0", "y0", "x1", "y1", "children", "bodies", "mass", "cx", "cy", "w2",
+    )
 
     def __init__(self, x0: float, y0: float, x1: float, y1: float) -> None:
         self.x0, self.y0, self.x1, self.y1 = x0, y0, x1, y1
+        # The opening-angle test compares the square of the quad's width
+        # against the square of the distance; computing it per visit meant
+        # recomputing a constant three million times in one layout.
+        self.w2 = (x1 - x0) * (x1 - x0)
         self.children: list[_Quad] | None = None
         self.bodies: list[_P] = []
         self.mass = 0.0
@@ -129,29 +147,43 @@ class _Quad:
             self.cx, self.cy = cx / mass, cy / mass
 
 
-def _repel(quad: _Quad, body: _P, charge: float, theta2: float, alpha: float) -> None:
-    if quad.mass == 0.0:
-        return
-    dx = quad.cx - body.x
-    dy = quad.cy - body.y
-    d2 = dx * dx + dy * dy
+def _repel(root: _Quad, body: _P, charge: float, theta2: float, alpha: float) -> None:
+    """Barnes-Hut repulsion on one body, walked with a stack.
 
-    width = quad.x1 - quad.x0
-    if quad.children is not None and width * width / max(d2, 1e-9) > theta2:
-        for child in quad.children:
-            _repel(child, body, charge, theta2, alpha)
-        return
+    The recursive form is the readable one and was 3.2 million Python calls
+    for a 200-node layout -- 80% of the engine's whole running time. The
+    acceptance rule and the arithmetic are unchanged; only the traversal is.
+    """
+    bx, by = body.x, body.y
+    vx = vy = 0.0
+    stack = [root]
+    while stack:
+        quad = stack.pop()
+        if quad.mass == 0.0:
+            continue
+        dx = quad.cx - bx
+        dy = quad.cy - by
+        d2 = dx * dx + dy * dy
 
-    if quad.children is None and body in quad.bodies and quad.mass <= 1.0:
-        return
-    if d2 < 1.0:
-        # Coincident or near-coincident bodies: push along a deterministic
-        # direction rather than dividing by zero or picking a random one.
-        dx, dy, d2 = 1.0, 0.0, 1.0
-    force = charge * quad.mass * alpha / d2
-    length = math.sqrt(d2)
-    body.vx += dx / length * force
-    body.vy += dy / length * force
+        if quad.children is not None:
+            if quad.w2 > theta2 * (d2 if d2 > 1e-9 else 1e-9):
+                stack.extend(quad.children)
+                continue
+        elif quad.mass <= 1.0 and quad.bodies and quad.bodies[0] is body:
+            # A leaf of mass <= 1 holds at most one body, so indexing is the
+            # same test as a membership scan and costs a fraction of it.
+            continue
+
+        if d2 < 1.0:
+            # Coincident or near-coincident bodies: push along a deterministic
+            # direction rather than dividing by zero or picking a random one.
+            dx, dy, d2 = 1.0, 0.0, 1.0
+        scale = charge * quad.mass * alpha / (d2 * math.sqrt(d2))
+        vx += dx * scale
+        vy += dy * scale
+
+    body.vx += vx
+    body.vy += vy
 
 
 def force(graph: Graph, opts: ForceOptions | None = None) -> Graph:
@@ -194,6 +226,7 @@ def force(graph: Graph, opts: ForceOptions | None = None) -> Graph:
     theta2 = options.theta * options.theta
     keep = 1 - options.velocity_decay
 
+    settled = 0
     for _ in range(options.ticks):
         if alpha < alpha_min:
             break
@@ -234,6 +267,8 @@ def force(graph: Graph, opts: ForceOptions | None = None) -> Graph:
                 body.vx += (cx - body.x) * options.cluster_strength * alpha
                 body.vy += (cy - body.y) * options.cluster_strength * alpha
 
+        limit = options.settle * options.settle
+        busiest = 0.0
         for body in bodies.values():
             body.vx -= body.x * options.gravity * alpha
             body.vy -= body.y * options.gravity * alpha
@@ -241,6 +276,15 @@ def force(graph: Graph, opts: ForceOptions | None = None) -> Graph:
             body.vy *= keep
             body.x += body.vx
             body.y += body.vy
+            step = body.vx * body.vx + body.vy * body.vy
+            if step > busiest:
+                busiest = step
+
+        # Three quiet ticks, not one: a single tick can be quiet while the
+        # layout is turning around, and stopping there leaves it mid-swing.
+        settled = settled + 1 if busiest < limit else 0
+        if settled >= 3:
+            break
 
     _separate(bodies, options)
 
