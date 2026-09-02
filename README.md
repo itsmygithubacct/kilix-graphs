@@ -163,6 +163,12 @@ published algorithm:
 | Position | Brandes & Köpf, "Fast and Simple Horizontal Coordinate Assignment" |
 | Separate | a left-to-right sweep so cluster boxes stay disjoint |
 
+A group is an assertion about membership, so three things hold in **every**
+engine, not only the layered one: sibling boxes never overlap, no box contains
+a node from somewhere else, and a nested box stays strictly inside its parent.
+The layered engine gets that from the rank structure; the others get it from a
+relaxation pass, since a force layout has no idea what a group is.
+
 Normalisation is why edge routing is nearly free: a long edge is *already* a
 chain of dummy nodes with coordinates, so joining them is a route that
 provably misses every node.
@@ -199,7 +205,7 @@ make test-raster   # the same suite with soft-raster on the path
 make examples      # render examples/ into build/
 ```
 
-The suite is 134 tests. The raster ones skip when `soft-raster` is absent
+The suite is 139 tests. The raster ones skip when `soft-raster` is absent
 rather than failing, so `make check` is still a meaningful run anywhere.
 
 ## Licence

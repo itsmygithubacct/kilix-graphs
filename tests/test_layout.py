@@ -130,7 +130,8 @@ class LayeredTests(unittest.TestCase):
             "a2 -> b1\n"
         )
         layout.run(graph, "layered")
-        descendants = layered_module._descendants
+        from kilix_graphs.layout.clusters import descendants
+
         for cluster in graph.clusters.values():
             if cluster.w <= 0:
                 continue
@@ -390,6 +391,108 @@ class CrossCountTests(unittest.TestCase):
             if (t1 - t2) * (h1 - h2) < 0
         )
         self.assertEqual(layered_module.cross_count([north, south], work), naive)
+
+
+class ClusterInvariantTests(unittest.TestCase):
+    """The three things a grouped drawing must not do, in every engine.
+
+    A group is an assertion about membership. A box overlapping another box, a
+    box containing a node from elsewhere, or a child escaping its parent all
+    say something untrue, and they say it whichever engine placed the nodes.
+    """
+
+    SOURCE = (
+        "group alpha: Alpha\n"
+        "    a1 -> a2\n"
+        "    a2 -> a3\n"
+        "group beta: Beta\n"
+        "    b1 -> b2\n"
+        "group gamma: Gamma\n"
+        "    group inner: Inner\n"
+        "        c1 -> c2\n"
+        "    c2 -> c3\n"
+        "a2 -> b1\n"
+        "b2 -> c1\n"
+        "a1 -> c3\n"
+    )
+
+    def _laid_out(self, engine: str):
+        graph = parse.loads(self.SOURCE)
+        layout.run(graph, engine)
+        return graph
+
+    def test_every_engine_draws_every_cluster(self) -> None:
+        for engine in sorted(layout.ENGINES):
+            with self.subTest(engine=engine):
+                graph = self._laid_out(engine)
+                drawn = [c for c in graph.clusters.values() if c.w > 0 and c.h > 0]
+                self.assertEqual(len(drawn), 4, "a group vanished from the drawing")
+
+    def test_sibling_boxes_never_overlap(self) -> None:
+        for engine in sorted(layout.ENGINES):
+            with self.subTest(engine=engine):
+                boxes = [c for c in self._laid_out(engine).clusters.values() if c.w > 0]
+                for index, first in enumerate(boxes):
+                    for second in boxes[index + 1 :]:
+                        if first.parent != second.parent:
+                            continue
+                        self.assertTrue(
+                            first.x + first.w <= second.x
+                            or second.x + second.w <= first.x
+                            or first.y + first.h <= second.y
+                            or second.y + second.h <= first.y,
+                            f"{first.id} overlaps {second.id}",
+                        )
+
+    def test_no_box_holds_a_node_from_somewhere_else(self) -> None:
+        from kilix_graphs.layout.clusters import descendants
+
+        for engine in sorted(layout.ENGINES):
+            with self.subTest(engine=engine):
+                graph = self._laid_out(engine)
+                for cluster in graph.clusters.values():
+                    if cluster.w <= 0:
+                        continue
+                    inside = descendants(graph, cluster.id)
+                    for node in graph.nodes.values():
+                        if node.cluster in inside:
+                            continue
+                        self.assertTrue(
+                            node.x + node.w / 2 <= cluster.x
+                            or node.x - node.w / 2 >= cluster.x + cluster.w
+                            or node.y + node.h / 2 <= cluster.y
+                            or node.y - node.h / 2 >= cluster.y + cluster.h,
+                            f"{node.id} sits in {cluster.id}",
+                        )
+
+    def test_no_two_nodes_are_drawn_on_top_of_each_other(self) -> None:
+        """Evicting a node from a box lands it somewhere, and without a node
+        rule in the same relaxation that somewhere was another node."""
+        for engine in sorted(layout.ENGINES):
+            with self.subTest(engine=engine):
+                nodes = list(self._laid_out(engine).nodes.values())
+                for index, first in enumerate(nodes):
+                    for second in nodes[index + 1 :]:
+                        self.assertTrue(
+                            first.x + first.w / 2 <= second.x - second.w / 2
+                            or second.x + second.w / 2 <= first.x - first.w / 2
+                            or first.y + first.h / 2 <= second.y - second.h / 2
+                            or second.y + second.h / 2 <= first.y - first.h / 2,
+                            f"{first.id} overlaps {second.id}",
+                        )
+
+    def test_a_child_stays_inside_its_parent(self) -> None:
+        for engine in sorted(layout.ENGINES):
+            with self.subTest(engine=engine):
+                graph = self._laid_out(engine)
+                for cluster in graph.clusters.values():
+                    parent = graph.clusters.get(cluster.parent or "")
+                    if parent is None or parent.w <= 0 or cluster.w <= 0:
+                        continue
+                    self.assertLessEqual(parent.x, cluster.x)
+                    self.assertLessEqual(parent.y, cluster.y)
+                    self.assertLessEqual(cluster.x + cluster.w, parent.x + parent.w)
+                    self.assertLessEqual(cluster.y + cluster.h, parent.y + parent.h)
 
 
 class OtherEnginesTests(unittest.TestCase):

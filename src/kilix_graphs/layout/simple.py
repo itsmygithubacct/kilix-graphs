@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 from ..model import Graph
 from ..route import route_straight
+from .clusters import place_clusters, resolve_overlap
 
 __all__ = ["CircularOptions", "GridOptions", "TreeOptions", "circular", "grid", "tree"]
 
@@ -126,6 +127,7 @@ def tree(graph: Graph, opts: TreeOptions | None = None) -> Graph:
             else:
                 node.x = max_x - node.x
 
+    resolve_overlap(graph)
     route_straight(graph)
     graph.normalise()
     return graph
@@ -177,6 +179,7 @@ def circular(graph: Graph, opts: CircularOptions | None = None) -> Graph:
         node.x = radius * math.cos(angle)
         node.y = radius * math.sin(angle)
 
+    resolve_overlap(graph)
     route_straight(graph)
     graph.normalise()
     return graph
@@ -215,6 +218,7 @@ def grid(graph: Graph, opts: GridOptions | None = None) -> Graph:
         node.x = x_at[index % columns]
         node.y = y_at[index // columns]
 
+    resolve_overlap(graph)
     route_straight(graph)
     graph.normalise()
     return graph

@@ -26,6 +26,7 @@ from dataclasses import dataclass
 
 from ..model import Graph
 from ..route import route_straight
+from .clusters import place_clusters, resolve_overlap
 
 __all__ = ["ForceOptions", "force"]
 
@@ -47,6 +48,11 @@ class ForceOptions:
     theta: float = 0.9
     collide_passes: int = 4
     collide_pad: float = 8.0
+    #: Pull a cluster's members toward their own centroid. Without it a
+    #: grouped graph laid out by force gets boxes that overlap each other and
+    #: contain nodes from other groups -- the box is drawn around wherever the
+    #: members happened to land, which is not a grouping anyone can read.
+    cluster_strength: float = 0.35
 
 
 @dataclass
@@ -176,6 +182,12 @@ def force(graph: Graph, opts: ForceOptions | None = None) -> Graph:
         degree[edge.tail] += 1
         degree[edge.head] += 1
 
+    grouped: dict[str, list[str]] = {}
+    for name in names:
+        owner = graph.nodes[name].cluster
+        if owner:
+            grouped.setdefault(owner, []).append(name)
+
     alpha = 1.0
     alpha_min = 0.001
     decay = 1 - alpha_min ** (1 / max(1, options.ticks))
@@ -212,6 +224,16 @@ def force(graph: Graph, opts: ForceOptions | None = None) -> Graph:
             a.vx += dx * push * bias
             a.vy += dy * push * bias
 
+        for members in grouped.values():
+            if len(members) < 2:
+                continue
+            cx = sum(bodies[m].x for m in members) / len(members)
+            cy = sum(bodies[m].y for m in members) / len(members)
+            for name in members:
+                body = bodies[name]
+                body.vx += (cx - body.x) * options.cluster_strength * alpha
+                body.vy += (cy - body.y) * options.cluster_strength * alpha
+
         for body in bodies.values():
             body.vx -= body.x * options.gravity * alpha
             body.vy -= body.y * options.gravity * alpha
@@ -225,6 +247,7 @@ def force(graph: Graph, opts: ForceOptions | None = None) -> Graph:
     for name, body in bodies.items():
         graph.nodes[name].x = body.x
         graph.nodes[name].y = body.y
+    resolve_overlap(graph)
     route_straight(graph)
     graph.normalise()
     return graph

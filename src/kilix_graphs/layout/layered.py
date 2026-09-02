@@ -44,7 +44,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from ..model import CLUSTER_LABEL_BAND, Graph
+from ..model import Graph
+from .clusters import CLUSTER_PAD, ancestry, place_clusters, top_pad
 
 __all__ = ["LayeredOptions", "layered", "total_edge_length"]
 
@@ -1024,18 +1025,56 @@ def layered(graph: Graph, opts: LayeredOptions | None = None) -> Graph:
     for name, x in xs.items():
         work.nodes[name].x = x
     _separate_groups(work, _grouper(graph, work, live), options)
+
+    # A cluster's box extends past the ranks its members occupy: padding below
+    # the last one, padding plus a label band above the first. Two clusters on
+    # consecutive ranks therefore overlap whenever ranksep is smaller than the
+    # sum of those, which measured as a four-unit overlap between every pair of
+    # adjacent groups in the example pipeline -- separating them in x cannot
+    # help, because they do not share a rank to be separated on.
+    below, above = _cluster_margins(graph, work, layers)
     y = 0.0
-    for layer in layers:
+    for index, layer in enumerate(layers):
         tallest = max((work.nodes[v].h for v in layer), default=0.0)
         for v in layer:
             work.nodes[v].y = y + tallest / 2
-        y += tallest + options.ranksep
+        y += tallest + options.ranksep + below.get(index, 0.0)
+        y += above.get(index + 1, 0.0)
 
     _writeback(graph, work, chains, live, options, horizontal)
     _place_self_loops(graph, self_loops, options)
-    _place_clusters(graph)
+    place_clusters(graph)
     graph.normalise()
     return graph
+
+
+def _cluster_margins(
+    graph: Graph, work: _W, layers: list[list[str]]
+) -> tuple[dict[int, float], dict[int, float]]:
+    """Extra space each rank boundary owes to a cluster starting or ending.
+
+    Nested clusters each contribute their own padding, which is right: a child
+    inside a parent needs a gap from the parent's outline as well as from
+    whatever is beyond it.
+    """
+    rank_of = {name: index for index, layer in enumerate(layers) for name in layer}
+    first: dict[str, int] = {}
+    last: dict[str, int] = {}
+    for node in graph.nodes.values():
+        rank = rank_of.get(node.id)
+        if rank is None:
+            continue
+        for cluster_id in ancestry(graph, node.cluster):
+            first[cluster_id] = min(first.get(cluster_id, rank), rank)
+            last[cluster_id] = max(last.get(cluster_id, rank), rank)
+
+    below: dict[int, float] = {}
+    above: dict[int, float] = {}
+    for cluster_id, rank in last.items():
+        below[rank] = below.get(rank, 0.0) + CLUSTER_PAD
+    for cluster_id, rank in first.items():
+        above[rank] = above.get(rank, 0.0) + top_pad(graph, cluster_id)
+    return below, above
 
 
 def _grouper(graph: Graph, work: _W, live: list[int]):
@@ -1149,69 +1188,3 @@ def _place_self_loops(graph: Graph, indices: list[int], opts: LayeredOptions) ->
         ]
 
 
-CLUSTER_PAD = 20.0
-
-
-def _descendants(graph: Graph, cluster_id: str) -> set[str]:
-    """A cluster's own id plus every cluster nested inside it.
-
-    A parent whose members are all in child clusters has no node naming it
-    directly, so boxing it by direct membership alone gave it zero size and it
-    vanished from the drawing.
-    """
-    ids = {cluster_id}
-    changed = True
-    while changed:
-        changed = False
-        for cluster in graph.clusters.values():
-            if cluster.parent in ids and cluster.id not in ids:
-                ids.add(cluster.id)
-                changed = True
-    return ids
-
-
-def _nesting_depth(graph: Graph, cluster_id: str) -> int:
-    depth = 0
-    current = graph.clusters[cluster_id].parent
-    seen = {cluster_id}
-    while current in graph.clusters and current not in seen:
-        seen.add(current)
-        depth += 1
-        current = graph.clusters[current].parent
-    return depth
-
-
-def _place_clusters(graph: Graph) -> None:
-    """Box each cluster around its members, innermost first.
-
-    A parent is boxed around its children's *boxes*, not only around the nodes
-    inside them, and each child is inset by a full pad. Taking the union of
-    member nodes alone gives a parent whose outline lands exactly on its
-    child's wherever the two hold the same column, and two coincident outlines
-    do not read as nesting.
-    """
-    pad = CLUSTER_PAD
-    for cluster_id in sorted(
-        graph.clusters, key=lambda name: _nesting_depth(graph, name), reverse=True
-    ):
-        cluster = graph.clusters[cluster_id]
-        members = [n for n in graph.nodes.values() if n.cluster == cluster_id]
-        children = [
-            c for c in graph.clusters.values()
-            if c.parent == cluster_id and c.w > 0 and c.h > 0
-        ]
-        corners = [
-            (n.x - n.w / 2, n.y - n.h / 2, n.x + n.w / 2, n.y + n.h / 2)
-            for n in members
-        ] + [(c.x, c.y, c.x + c.w, c.y + c.h) for c in children]
-        if not corners:
-            cluster.w = cluster.h = 0.0
-            continue
-        x0 = min(c[0] for c in corners) - pad
-        y0 = min(c[1] for c in corners) - pad
-        if cluster.label:
-            y0 -= CLUSTER_LABEL_BAND
-        x1 = max(c[2] for c in corners) + pad
-        y1 = max(c[3] for c in corners) + pad
-        cluster.x, cluster.y = x0, y0
-        cluster.w, cluster.h = x1 - x0, y1 - y0
