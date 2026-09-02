@@ -33,5 +33,8 @@ First release.
 - Two themes, both validated for colourblind separation, lightness band and
   contrast against their own surface.
 - A five-verb command: `draw`, `chart`, `convert`, `layout`, `doctor`.
-- 142 tests, no runtime dependencies. The raster tests skip rather than fail
+- A `./kilix-graphs` launcher that runs the package straight from a
+  checkout, and a `make all` build target, so the repository is runnable
+  and installable without pip.
+- 144 tests, no runtime dependencies. The raster tests skip rather than fail
   where soft-raster is absent.

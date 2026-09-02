@@ -51,6 +51,12 @@ degraded version of the other: they are two renderers over one scene.
 python3 -m pip install .
 ```
 
+Or run it straight from a clone, with nothing installed:
+
+```sh
+./kilix-graphs draw examples/pipeline.kg
+```
+
 Nothing is required at runtime. The pixel backend additionally wants
 `soft-raster` 0.5 or later and its Python binding; without them the text and
 SVG backends still work and `kilix-graphs doctor` says so.
@@ -200,12 +206,13 @@ back.
 ## Development
 
 ```sh
+make all           # build (what the Kilix content installer runs)
 make check         # compile and run the suite on a bare interpreter
 make test-raster   # the same suite with soft-raster on the path
 make examples      # render examples/ into build/
 ```
 
-The suite is 142 tests. The raster ones skip when `soft-raster` is absent
+The suite is 144 tests. The raster ones skip when `soft-raster` is absent
 rather than failing, so `make check` is still a meaningful run anywhere.
 
 ## Licence

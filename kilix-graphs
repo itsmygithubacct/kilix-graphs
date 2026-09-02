@@ -1,0 +1,24 @@
+#!/usr/bin/env python3
+"""Run kilix-graphs straight from a checkout.
+
+`pip install` provides a `kilix-graphs` console script, and that is the right
+way to have it on a PATH. This is for the two cases that do not go through
+pip: someone who has just cloned the repository and wants to try it, and the
+Kilix content installer, which builds a checkout in place and then runs one
+named file inside it.
+
+It puts this checkout's `src` first on the import path, so a clone always runs
+its own code rather than a different version installed elsewhere.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
+
+from kilix_graphs.cli import main  # noqa: E402 - the path must be set first
+
+if __name__ == "__main__":
+    raise SystemExit(main())

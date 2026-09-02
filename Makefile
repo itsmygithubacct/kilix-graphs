@@ -6,12 +6,19 @@ TESTS := $(wildcard tests/*.py)
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check compile test test-raster examples clean wheel install
+.PHONY: all help check compile test test-raster examples clean wheel install
+
+# `all` is what the Kilix content installer runs, and what every other
+# git-sourced catalog entry declares. It builds; it does not test. A user's
+# install must not depend on a test suite passing on their machine.
+all: compile
+	@test -x ./kilix-graphs || { echo 'kilix-graphs launcher is not executable'; exit 1; }
 
 help:
 	@printf '%s\n' \
 		'kilix-graphs' \
 		'' \
+		'  make all          build (what the content installer runs)' \
 		'  make check        compile + the full suite' \
 		'  make test         the suite on a bare interpreter' \
 		'  make test-raster  the suite with soft-raster on the path' \
@@ -21,7 +28,7 @@ help:
 		'  SOFT_RASTER_DIR=$(SOFT_RASTER_DIR)'
 
 compile:
-	$(PYTHON) -m compileall -q src tests
+	$(PYTHON) -m compileall -q src tests kilix-graphs
 
 test:
 	PYTHONPATH=src $(PYTHON) -m unittest discover -s tests

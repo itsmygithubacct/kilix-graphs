@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast
 import io
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -72,6 +73,32 @@ class BoundaryTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertGreater(int(result.stdout.strip()), 0)
+
+
+class LauncherTests(unittest.TestCase):
+    """The repository has to be runnable without being installed.
+
+    The Kilix content installer builds a checkout in place and then runs one
+    named file inside it, so a catalog entry naming a binary the repository
+    does not contain is an install that produces nothing runnable.
+    """
+
+    def test_the_root_launcher_exists_and_is_executable(self) -> None:
+        launcher = SOURCE.parent.parent / "kilix-graphs"
+        self.assertTrue(launcher.is_file(), "no ./kilix-graphs launcher")
+        self.assertTrue(os.access(launcher, os.X_OK), "launcher is not executable")
+
+    def test_the_launcher_runs_from_a_clean_environment(self) -> None:
+        launcher = SOURCE.parent.parent / "kilix-graphs"
+        result = subprocess.run(
+            [sys.executable, str(launcher), "--version"],
+            capture_output=True,
+            text=True,
+            cwd="/",  # no cwd on the path, and no PYTHONPATH inherited
+            env={"PATH": os.environ.get("PATH", "")},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("kilix-graphs", result.stdout)
 
 
 class CliTests(unittest.TestCase):
