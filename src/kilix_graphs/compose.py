@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .model import FONT_HEIGHT, Graph, Shape
+from .model import CLUSTER_LABEL_BAND, FONT_HEIGHT, Graph, Shape
 from .route import arrow_head, catmull_rom, trim_for_arrow
 from .scene import Anchor, Ellipse, Polygon, Polyline, Rect, Scene, Style, Text
 from .theme import DARK, Theme, parse_colour
@@ -71,10 +71,12 @@ def compose(graph: Graph, opts: ComposeOptions | None = None) -> Scene:
             scene.add(
                 Text(
                     x=cluster.x + 10,
-                    # One line below the outline, not on it: at the outline
-                    # the cell renderer has to choose between the label and
-                    # the border, and either choice loses something.
-                    y=cluster.y + FONT_HEIGHT,
+                    # Centred in the band layout reserved for it. Below the
+                    # outline, because at the outline a cell renderer has to
+                    # choose between the label and the border and either
+                    # choice loses something -- and above the contents,
+                    # because layout kept that space empty.
+                    y=cluster.y + CLUSTER_LABEL_BAND / 2,
                     value=cluster.label,
                     anchor=Anchor.START,
                     layer=LAYER_LABEL,

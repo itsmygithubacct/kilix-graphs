@@ -22,10 +22,20 @@ Five phases, each resting on a published algorithm:
    Assignment" (GD 2001): four alignments, each block compacted to its
    leftmost feasible position, then aligned to the narrowest and averaged.
 
-Clusters are not part of the compaction. Their bounding boxes are computed
-from their members after positioning, which keeps this phase free of the
-compound-graph machinery and is honest about what it does: nested clusters can
-overlap where the layout had no reason to separate them.
+Clusters are not part of the Brandes-Kopf compaction, which separates nodes
+*within a rank*. That is not enough on its own: a cluster's box is the union of
+its members over every rank it spans, so two boxes can overlap even when every
+rank is properly separated, and a node can end up drawn inside a group it does
+not belong to. A sixth pass therefore sweeps left to right and pushes apart any
+two groups whose rank spans meet, where a group is a top-level cluster or one
+thing outside every cluster. It constrains only pairs involving a cluster,
+because two ordinary nodes are already separated by the phase above and
+constraining them by their union over all ranks over-separates them.
+
+The full compound machinery -- border nodes carried through ordering and
+compaction, as ELK and dagre do -- is still absent. What ships keeps the
+invariants a reader depends on (boxes disjoint, nothing inside a foreign box,
+a child strictly inside its parent) without it.
 """
 
 from __future__ import annotations
@@ -33,7 +43,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from ..model import Graph
+from ..model import CLUSTER_LABEL_BAND, Graph
 
 __all__ = ["LayeredOptions", "layered", "total_edge_length"]
 
@@ -624,6 +634,74 @@ def _position_x(layers: list[list[str]], work: _W, opts: LayeredOptions) -> dict
     return _balance(ordered)
 
 
+# ------------------------------------------------- 6. cluster separation
+
+
+def _separate_groups(work: _W, group_of, opts: LayeredOptions) -> None:
+    """Push groups whose rank spans overlap apart in x, left to right.
+
+    Brandes-Kopf separates *nodes within a rank*, which is not enough to keep
+    a cluster's box off another's. A cluster's box is the union of its members
+    over every rank it spans, so a cluster occupying ranks 2-3 can have its
+    rank-3 member sit left of a cluster occupying ranks 0-2 and slide its whole
+    box underneath. Measured before this pass: three sibling clusters produced
+    an overlapping pair, and one cluster's node was rendered *inside* another's
+    box -- a drawing that says the node is in a group it is not in.
+
+    A group is a top-level cluster, or one thing that belongs to no cluster.
+    Two groups constrain each other only where their rank spans meet; the
+    sweep visits them left to right and only ever shifts right, so it
+    terminates and never undoes a separation it has already made.
+    """
+    members: dict[object, list[str]] = {}
+    for name in work.nodes:
+        members.setdefault(group_of(name), []).append(name)
+    if len(members) < 2:
+        return
+
+    def extent(names: list[str]) -> tuple[float, float, int, int]:
+        nodes = [work.nodes[name] for name in names]
+        return (
+            min(n.x - n.w / 2 for n in nodes),
+            max(n.x + n.w / 2 for n in nodes),
+            min(n.rank for n in nodes),
+            max(n.rank for n in nodes),
+        )
+
+    def is_cluster(key: object) -> bool:
+        return isinstance(key, tuple) and key[0] == "cluster"
+
+    if not any(is_cluster(key) for key in members):
+        return
+
+    pad = {key: (CLUSTER_PAD if is_cluster(key) else 0.0) for key in members}
+    order = sorted(members, key=lambda key: (extent(members[key])[0], repr(key)))
+
+    placed: list[object] = []
+    for key in order:
+        left, _, low, high = extent(members[key])
+        left -= pad[key]
+        shift = 0.0
+        for other in placed:
+            # Only a cluster has a *box*, and only a box can be overlapped or
+            # wrongly contain something. Two ordinary nodes, or a node and an
+            # edge route, are already separated within their shared rank by
+            # the coordinate assignment; constraining them by their union over
+            # every rank instead over-separates them -- measured, it widened a
+            # cluster-free state machine from 162 to 184 units for nothing.
+            if not is_cluster(key) and not is_cluster(other):
+                continue
+            _, right, other_low, other_high = extent(members[other])
+            if high < other_low or other_high < low:
+                continue
+            right += pad[other]
+            shift = max(shift, right + opts.nodesep - left)
+        if shift > 0.0:
+            for name in members[key]:
+                work.nodes[name].x += shift
+        placed.append(key)
+
+
 # ------------------------------------------------------------------- driver
 
 
@@ -670,11 +748,13 @@ def layered(graph: Graph, opts: LayeredOptions | None = None) -> Graph:
     layers = _order(work, options)
 
     xs = _position_x(layers, work, options)
+    for name, x in xs.items():
+        work.nodes[name].x = x
+    _separate_groups(work, _grouper(graph, work, live), options)
     y = 0.0
     for layer in layers:
         tallest = max((work.nodes[v].h for v in layer), default=0.0)
         for v in layer:
-            work.nodes[v].x = xs.get(v, 0.0)
             work.nodes[v].y = y + tallest / 2
         y += tallest + options.ranksep
 
@@ -683,6 +763,44 @@ def layered(graph: Graph, opts: LayeredOptions | None = None) -> Graph:
     _place_clusters(graph)
     graph.normalise()
     return graph
+
+
+def _grouper(graph: Graph, work: _W, live: list[int]):
+    """Name the group each working node belongs to, for the separation sweep.
+
+    A dummy belongs to a cluster only when *both* ends of its edge do. An edge
+    between two clusters belongs to neither, and its route is separated from
+    both -- which is what it should be, since a route drawn inside a box it is
+    not part of reads as membership.
+    """
+    top: dict[str, str] = {}
+    for cluster in graph.clusters:
+        current = cluster
+        seen = {current}
+        while True:
+            parent = graph.clusters[current].parent
+            if parent is None or parent not in graph.clusters or parent in seen:
+                break
+            current = parent
+            seen.add(current)
+        top[cluster] = current
+
+    def cluster_of(node_id: str) -> str | None:
+        name = graph.nodes[node_id].cluster
+        return top.get(name) if name else None
+
+    def group(name: str) -> object:
+        node = work.nodes[name]
+        if not node.dummy:
+            owner = cluster_of(name)
+            return ("cluster", owner) if owner else ("node", name)
+        edge = graph.edges[live[node.edge]]
+        tail, head = cluster_of(edge.tail), cluster_of(edge.head)
+        if tail is not None and tail == head:
+            return ("cluster", tail)
+        return ("route", node.edge)
+
+    return group
 
 
 def _writeback(
@@ -758,17 +876,69 @@ def _place_self_loops(graph: Graph, indices: list[int], opts: LayeredOptions) ->
         ]
 
 
+CLUSTER_PAD = 20.0
+
+
+def _descendants(graph: Graph, cluster_id: str) -> set[str]:
+    """A cluster's own id plus every cluster nested inside it.
+
+    A parent whose members are all in child clusters has no node naming it
+    directly, so boxing it by direct membership alone gave it zero size and it
+    vanished from the drawing.
+    """
+    ids = {cluster_id}
+    changed = True
+    while changed:
+        changed = False
+        for cluster in graph.clusters.values():
+            if cluster.parent in ids and cluster.id not in ids:
+                ids.add(cluster.id)
+                changed = True
+    return ids
+
+
+def _nesting_depth(graph: Graph, cluster_id: str) -> int:
+    depth = 0
+    current = graph.clusters[cluster_id].parent
+    seen = {cluster_id}
+    while current in graph.clusters and current not in seen:
+        seen.add(current)
+        depth += 1
+        current = graph.clusters[current].parent
+    return depth
+
+
 def _place_clusters(graph: Graph) -> None:
-    """Box each cluster around its members, after positioning."""
-    pad = 20.0
-    for cluster in graph.clusters.values():
-        members = [n for n in graph.nodes.values() if n.cluster == cluster.id]
-        if not members:
+    """Box each cluster around its members, innermost first.
+
+    A parent is boxed around its children's *boxes*, not only around the nodes
+    inside them, and each child is inset by a full pad. Taking the union of
+    member nodes alone gives a parent whose outline lands exactly on its
+    child's wherever the two hold the same column, and two coincident outlines
+    do not read as nesting.
+    """
+    pad = CLUSTER_PAD
+    for cluster_id in sorted(
+        graph.clusters, key=lambda name: _nesting_depth(graph, name), reverse=True
+    ):
+        cluster = graph.clusters[cluster_id]
+        members = [n for n in graph.nodes.values() if n.cluster == cluster_id]
+        children = [
+            c for c in graph.clusters.values()
+            if c.parent == cluster_id and c.w > 0 and c.h > 0
+        ]
+        corners = [
+            (n.x - n.w / 2, n.y - n.h / 2, n.x + n.w / 2, n.y + n.h / 2)
+            for n in members
+        ] + [(c.x, c.y, c.x + c.w, c.y + c.h) for c in children]
+        if not corners:
             cluster.w = cluster.h = 0.0
             continue
-        x0 = min(n.x - n.w / 2 for n in members) - pad
-        y0 = min(n.y - n.h / 2 for n in members) - pad
-        x1 = max(n.x + n.w / 2 for n in members) + pad
-        y1 = max(n.y + n.h / 2 for n in members) + pad
+        x0 = min(c[0] for c in corners) - pad
+        y0 = min(c[1] for c in corners) - pad
+        if cluster.label:
+            y0 -= CLUSTER_LABEL_BAND
+        x1 = max(c[2] for c in corners) + pad
+        y1 = max(c[3] for c in corners) + pad
         cluster.x, cluster.y = x0, y0
         cluster.w, cluster.h = x1 - x0, y1 - y0

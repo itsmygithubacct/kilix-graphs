@@ -14,7 +14,8 @@ First release.
   grid. The layered engine is a full five-phase pipeline — greedy
   feedback-arc set, longest-path ranking with a slack-reduction pass, dummy
   chains, barycentre ordering scored by the Barth-Junger-Mutzel accumulator
-  count, and Brandes-Kopf coordinate assignment.
+  count, Brandes-Kopf coordinate assignment, and a cluster separation sweep
+  that keeps cluster boxes disjoint and nothing inside a group it is not in.
 - Edge routing: poly-line through the layered dummy chain, Catmull-Rom
   smoothing, clipping to box, ellipse and diamond outlines, arrowheads,
   parallel edges bowed apart, and self-loop lobes.
@@ -30,5 +31,5 @@ First release.
 - Two themes, both validated for colourblind separation, lightness band and
   contrast against their own surface.
 - A five-verb command: `draw`, `chart`, `convert`, `layout`, `doctor`.
-- 117 tests, no runtime dependencies. The raster tests skip rather than fail
+- 123 tests, no runtime dependencies. The raster tests skip rather than fail
   where soft-raster is absent.

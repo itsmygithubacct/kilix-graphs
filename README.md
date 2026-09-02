@@ -159,6 +159,7 @@ published algorithm:
 | Normalise | a dummy node per rank an edge crosses |
 | Order | barycentre sweeps, best by weighted crossing count (Barth, Jünger & Mutzel) |
 | Position | Brandes & Köpf, "Fast and Simple Horizontal Coordinate Assignment" |
+| Separate | a left-to-right sweep so cluster boxes stay disjoint |
 
 Normalisation is why edge routing is nearly free: a long edge is *already* a
 chain of dummy nodes with coordinates, so joining them is a route that
@@ -186,7 +187,7 @@ make test-raster   # the same suite with soft-raster on the path
 make examples      # render examples/ into build/
 ```
 
-The suite is 117 tests. The raster ones skip when `soft-raster` is absent
+The suite is 123 tests. The raster ones skip when `soft-raster` is absent
 rather than failing, so `make check` is still a meaningful run anywhere.
 
 ## Licence

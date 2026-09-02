@@ -38,6 +38,12 @@ LABEL_PAD_Y = 8.0
 MIN_NODE_W = 24.0
 MIN_NODE_H = 24.0
 
+#: Headroom a labelled cluster reserves above its contents for its own name.
+#: Layout adds it to the cluster's top padding and the composer centres the
+#: label in it. One number, because two would drift and the symptom is a
+#: cluster name written across the first thing inside the cluster.
+CLUSTER_LABEL_BAND = FONT_HEIGHT + 8
+
 Attrs = dict[str, str]
 
 

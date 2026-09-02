@@ -90,6 +90,136 @@ class LayeredTests(unittest.TestCase):
             self.assertGreaterEqual(node.y - node.h / 2, box.y)
             self.assertLessEqual(node.y + node.h / 2, box.y + box.h)
 
+    def test_sibling_clusters_do_not_overlap(self) -> None:
+        """A cluster box is a union over its ranks, so per-rank separation is
+        not enough to keep two of them apart."""
+        graph = parse.loads(
+            "group alpha: A\n"
+            "    a1 -> a2\n"
+            "    a2 -> a3\n"
+            "group beta: B\n"
+            "    b1 -> b2\n"
+            "group gamma: C\n"
+            "    c1 -> c2\n"
+            "a2 -> b1\n"
+            "b2 -> c1\n"
+            "a1 -> c2\n"
+        )
+        layout.run(graph, "layered")
+        boxes = [c for c in graph.clusters.values() if c.w > 0]
+        self.assertEqual(len(boxes), 3)
+        for i, first in enumerate(boxes):
+            for second in boxes[i + 1 :]:
+                overlapping = not (
+                    first.x + first.w <= second.x
+                    or second.x + second.w <= first.x
+                    or first.y + first.h <= second.y
+                    or second.y + second.h <= first.y
+                )
+                self.assertFalse(overlapping, f"{first.id} overlaps {second.id}")
+
+    def test_a_node_is_never_drawn_inside_a_cluster_it_is_not_in(self) -> None:
+        """The defect that made the separation pass necessary: a drawing that
+        puts a node in a box says it is in that group."""
+        graph = parse.loads(
+            "group alpha: A\n"
+            "    a1 -> a2\n"
+            "    a2 -> a3\n"
+            "group beta: B\n"
+            "    b1 -> b2\n"
+            "a2 -> b1\n"
+        )
+        layout.run(graph, "layered")
+        descendants = layered_module._descendants
+        for cluster in graph.clusters.values():
+            if cluster.w <= 0:
+                continue
+            inside = descendants(graph, cluster.id)
+            for node in graph.nodes.values():
+                if node.cluster in inside:
+                    continue
+                self.assertFalse(
+                    cluster.x <= node.x <= cluster.x + cluster.w
+                    and cluster.y <= node.y <= cluster.y + cluster.h,
+                    f"{node.id} sits inside {cluster.id}",
+                )
+
+    def test_a_nested_cluster_sits_strictly_inside_its_parent(self) -> None:
+        graph = parse.loads(
+            "group outer: Outer\n"
+            "    a -> b\n"
+            "    group inner: Inner\n"
+            "        c -> d\n"
+            "    b -> c\n"
+        )
+        layout.run(graph, "layered")
+        outer, inner = graph.clusters["outer"], graph.clusters["inner"]
+        self.assertLess(outer.x, inner.x)
+        self.assertLess(outer.y, inner.y)
+        self.assertLess(inner.x + inner.w, outer.x + outer.w)
+        self.assertLess(inner.y + inner.h, outer.y + outer.h)
+
+    def test_a_parent_cluster_with_no_direct_members_is_still_drawn(self) -> None:
+        graph = parse.loads(
+            "group outer: Outer\n"
+            "    group inner: Inner\n"
+            "        c -> d\n"
+        )
+        layout.run(graph, "layered")
+        self.assertGreater(graph.clusters["outer"].w, 0.0)
+        self.assertGreater(graph.clusters["outer"].h, 0.0)
+
+    def test_a_cluster_label_has_a_band_of_its_own(self) -> None:
+        """The composer writes a cluster's name inside the box, so layout has
+        to keep that strip empty. Measured before it did: three of four labels
+        in this graph were written across a node or a nested outline."""
+        from kilix_graphs.model import CLUSTER_LABEL_BAND
+
+        graph = parse.loads(
+            "group alpha: Alpha\n"
+            "    a1 -> a2\n"
+            "group beta: Beta\n"
+            "    b1 -> b2\n"
+            "group gamma: Gamma\n"
+            "    group inner: Inner\n"
+            "        c1 -> c2\n"
+            "    c2 -> c3\n"
+            "a1 -> b1\n"
+            "b2 -> c1\n"
+        )
+        layout.run(graph, "layered")
+        for cluster in graph.clusters.values():
+            if cluster.w <= 0 or not cluster.label:
+                continue
+            lx0 = cluster.x + 10
+            lx1 = lx0 + len(cluster.label) * 8
+            ly0, ly1 = cluster.y, cluster.y + CLUSTER_LABEL_BAND
+            for node in graph.nodes.values():
+                clear = (
+                    node.x - node.w / 2 >= lx1
+                    or node.x + node.w / 2 <= lx0
+                    or node.y - node.h / 2 >= ly1
+                    or node.y + node.h / 2 <= ly0
+                )
+                self.assertTrue(
+                    clear, f"{node.id} is under the {cluster.label} label"
+                )
+
+    def test_separation_costs_nothing_on_a_graph_with_no_clusters(self) -> None:
+        """The pass must not widen a drawing it has no work to do in."""
+        source = "a -> b -> c\na -> d -> c\nb -> d"
+        with_pass = parse.loads(source)
+        layout.run(with_pass, "layered")
+
+        original = layered_module._separate_groups
+        layered_module._separate_groups = lambda *a, **k: None
+        try:
+            without = parse.loads(source)
+            layout.run(without, "layered")
+        finally:
+            layered_module._separate_groups = original
+        self.assertEqual(with_pass.bounds(), without.bounds())
+
     def test_nodes_on_a_rank_do_not_overlap(self) -> None:
         graph = parse.loads("r -> a\nr -> b\nr -> c\nr -> d\nr -> e")
         layout.run(graph, "layered")
