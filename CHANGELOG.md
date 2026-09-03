@@ -46,5 +46,5 @@ First release.
 - A `./kilix-graphs` launcher that runs the package straight from a
   checkout, and a `make all` build target, so the repository is runnable
   and installable without pip.
-- 201 tests, no runtime dependencies. The raster tests skip rather than fail
+- 202 tests, no runtime dependencies. The raster tests skip rather than fail
   where soft-raster is absent.

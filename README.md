@@ -133,10 +133,11 @@ Drag to pan, wheel to zoom about the pointer, click to select a node — which
 needs a hit test against real geometry, and is the thing a character grid
 cannot do. Hovering rings the node under the pointer.
 
-Where there is no graphics protocol but there *is* a display, the same verb
-opens a tkinter window instead — also standard library, so neither surface
-costs this package a runtime dependency. `--window` asks for the window
-directly. `kilix-graphs doctor` says which one you would get.
+`gui` means "the best graphical surface there is" and degrades rather than
+refusing: pane, then a tkinter window where there is a display but no graphics
+protocol, then the cell viewer. Both toolkits are standard library, so no
+surface costs this package a runtime dependency. `--window` asks for the window
+directly, and `kilix-graphs doctor` says which one you would get.
 
 There is a `kilix-ui`, and it is deliberately not used here: it is game UI in
 C — menus, panels, meters, portraits — built on `kilix-top-down-engine`, and
@@ -270,7 +271,7 @@ make test-raster   # the same suite with soft-raster on the path
 make examples      # render examples/ into build/
 ```
 
-The suite is 201 tests. The raster ones skip when `soft-raster` is absent
+The suite is 202 tests. The raster ones skip when `soft-raster` is absent
 rather than failing, so `make check` is still a meaningful run anywhere.
 
 ## Licence

@@ -554,6 +554,44 @@ class CliInterfaceTests(unittest.TestCase):
         self.assertGreater(len(graph.nodes), 4)
         layout.run(graph)
 
+    def test_gui_degrades_to_the_cell_viewer_rather_than_failing(self) -> None:
+        """A catalog action that exits non-zero on a fresh install is not an
+        action: without pixels and without a display, `gui` opens the cell
+        viewer and says so."""
+        import fcntl
+        import pty
+        import select
+        import struct
+        import termios
+        import time
+
+        path = temp_file("digraph\na -> b\n")
+        env = {"PATH": os.environ.get("PATH", ""), "TERM": "xterm-256color",
+               "PYTHONPATH": "src"}  # no DISPLAY, no soft-raster
+        pid, fd = pty.fork()
+        if pid == 0:  # pragma: no cover - the child execs away
+            os.chdir(Path(__file__).resolve().parent.parent)
+            os.execvpe(sys.executable,
+                       [sys.executable, "-m", "kilix_graphs.cli", "gui", str(path)], env)
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
+        seen = b""
+        end = time.time() + 2.5
+        while time.time() < end:
+            ready, _, _ = select.select([fd], [], [], 0.1)
+            if ready:
+                try:
+                    seen += os.read(fd, 65536)
+                except OSError:
+                    break
+        os.write(fd, b"q")
+        time.sleep(0.4)
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        self.assertEqual(os.waitstatus_to_exitcode(os.waitpid(pid, 0)[1]), 0)
+        self.assertIn(b"cell viewer", seen)
+
     def test_tui_refuses_to_run_without_a_terminal(self) -> None:
         path = temp_file("a -> b\n")
         result = self.run_cli("tui", str(path))  # captured output: not a tty

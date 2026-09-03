@@ -453,21 +453,32 @@ def cmd_gui(args: argparse.Namespace) -> int:
     `--window` asks for it directly.
     """
     from . import pane  # noqa: PLC0415
+    from .render import raster  # noqa: PLC0415
 
     session = _viewer_session(args)
-    if not args.window and pane.available():
+    if not args.window and pane.available() and raster.available():
         return pane.run(session)
 
-    from . import gui  # noqa: PLC0415
+    has_display = os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+    if args.window or has_display:
+        from . import gui  # noqa: PLC0415
 
-    if args.window or os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
         return gui.run(session)
+
+    # Neither surface. Degrade to the cell viewer rather than refusing: this
+    # verb means "the best graphical surface there is", and on a machine
+    # without soft-raster the floor is still a working viewer. A catalog
+    # action that exits non-zero on a fresh install is not an action.
+    from . import tui  # noqa: PLC0415
+
+    if not sys.stdout.isatty():
+        print("kilix-graphs: no graphical surface and no terminal.", file=sys.stderr)
+        return 2
     print(
-        "kilix-graphs: no graphics protocol and no display. "
-        "Use `kilix-graphs tui` for the cell viewer.",
+        "kilix-graphs: no graphics protocol here; opening the cell viewer.",
         file=sys.stderr,
     )
-    return 3
+    return tui.run(session)
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
