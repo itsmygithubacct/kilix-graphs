@@ -29,7 +29,7 @@ from typing import Any
 
 from ..scene import Anchor, Ellipse, Polygon, Polyline, Rect, Scene, Text
 
-__all__ = ["RasterOptions", "available", "render_raster"]
+__all__ = ["RasterOptions", "available", "png_bytes", "render_raster"]
 
 
 class RasterUnavailable(RuntimeError):
@@ -200,3 +200,41 @@ def _draw_text(canvas: Any, sr: Any, op: Text, scale: float) -> None:
             for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
                 canvas.text(x + dx, y + dy, line, op.halo, 1.0, multiplier)
         canvas.text(x, y, line, colour, op.style.alpha, multiplier)
+
+
+def png_bytes(canvas: Any) -> bytes:
+    """Encode a canvas as a PNG, with the standard library and nothing else.
+
+    A PNG is a fixed header, one zlib stream of filter-prefixed rows, and a
+    CRC32 per chunk -- all of which `zlib` and `struct` already provide. Adding
+    an image dependency to write the one format everything can open would be
+    the wrong trade for a package whose whole claim is that it has none.
+
+    Shared because two callers need the same bytes for different reasons: the
+    command line writes them to a file, and the GUI hands them to Tk, which
+    reads PNG from memory but not the PPM the rasteriser writes natively.
+    """
+    import struct  # noqa: PLC0415
+    import zlib  # noqa: PLC0415
+
+    width = canvas.width
+    height = canvas.height
+    rgb = canvas.rgb_bytes()
+    stride = width * 3
+    raw = b"".join(
+        b"\x00" + bytes(rgb[y * stride : (y + 1) * stride]) for y in range(height)
+    )
+
+    def chunk(tag: bytes, payload: bytes) -> bytes:
+        body = tag + payload
+        return (
+            struct.pack(">I", len(payload)) + body + struct.pack(">I", zlib.crc32(body))
+        )
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(raw, 6))
+        + chunk(b"IEND", b"")
+    )

@@ -13,15 +13,26 @@ import sys
 
 from ..scene import Scene
 from .svg import render_svg
-from .text import ASCII, CHARSETS, UNICODE, Charset, TextOptions, render_text
+from .text import (
+    ASCII,
+    CHARSETS,
+    UNICODE,
+    Cell,
+    Charset,
+    TextOptions,
+    render_cells,
+    render_text,
+)
 
 __all__ = [
     "ASCII",
     "CHARSETS",
+    "Cell",
     "Charset",
     "TextOptions",
     "UNICODE",
     "choose",
+    "render_cells",
     "render_svg",
     "render_text",
     "supports_graphics",

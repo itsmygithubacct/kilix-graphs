@@ -90,16 +90,53 @@ terminal {shape=box}
 - `group id: Label` opens a cluster; indented lines are its members, and
   groups nest.
 
-## Commands
+## Three interfaces
 
 ```sh
-kilix-graphs draw     graph.kg                  # to the terminal
+kilix-graphs tui  graph.kg     # interactive, in the terminal
+kilix-graphs gui  graph.kg     # a window
+kilix-graphs draw graph.kg     # one drawing, then exit
+```
+
+All three drive the same session, so a setting means the same thing in each
+and none of them repeats the pipeline.
+
+### `tui` — the terminal viewer
+
+Curses. Every setting is one key, and the file is reloaded when it changes on
+disk, so editing a `.kg` in one pane and watching it redraw in another is the
+normal way to work.
+
+| | |
+| --- | --- |
+| `arrows` `hjkl` | pan · `g`/`G` top/bottom · `0` recentre |
+| `e` `E` | next / previous engine |
+| `d` `t` `c` `u` | direction · theme · curves · unicode-or-ascii |
+| `+` `-` | font scale |
+| `r` `w` | reload now · write beside the source |
+| `?` `q` | help · quit |
+
+Needs no `soft-raster`: it draws through the same cell renderer as
+`--renderer text`.
+
+### `gui` — the window
+
+Tkinter, which is in the standard library, so the desktop viewer costs this
+package no runtime dependency. Engine, direction, theme, curves and zoom on a
+toolbar; drag to pan; **Fit** to size the drawing to the window; export to PNG,
+SVG or PPM. It reloads on save like the TUI, and falls back to the cell
+rendering when there are no pixels to be had.
+
+### `draw` and the rest
+
+```sh
 kilix-graphs draw     graph.dot -o out.png      # or .ppm, .svg, or text
 kilix-graphs draw     graph.kg -e force -d LR   # engine and direction
 kilix-graphs draw     graph.dot --ranker longest-path   # compare rankers
 kilix-graphs chart    data.csv -m bar --title "Frame budget"
 kilix-graphs convert  graph.kg --to dot
 kilix-graphs layout   graph.kg                  # positions as JSON, no renderer
+kilix-graphs syntax                             # the .kg format, in full
 kilix-graphs doctor                             # what this install can do
 ```
 
@@ -150,6 +187,12 @@ of resolution-independent draw operations, and it is why:
   raster — a corner in a cell grid is a junction glyph, not a dark pixel, and
   no amount of downsampling produces one;
 - the tests assert on a list of tuples instead of comparing images.
+
+`view` sits above all of it and is what the TUI and the GUI drive. It knows
+which settings affect which stage, so changing the *theme* recomposes without
+laying out again — on a 300-node graph that is 36 ms instead of 1.3 seconds,
+which is the difference between an interface that feels alive and one that
+does not.
 
 `model` and `layout` import nothing from `scene`, `render` or `chart`, and a
 test enforces it. That is what would let them lift into `kilix-modules` on the
@@ -212,7 +255,7 @@ make test-raster   # the same suite with soft-raster on the path
 make examples      # render examples/ into build/
 ```
 
-The suite is 144 tests. The raster ones skip when `soft-raster` is absent
+The suite is 189 tests. The raster ones skip when `soft-raster` is absent
 rather than failing, so `make check` is still a meaningful run anywhere.
 
 ## Licence

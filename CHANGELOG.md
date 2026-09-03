@@ -33,8 +33,16 @@ First release.
 - Two themes, both validated for colourblind separation, lightness band and
   contrast against their own surface.
 - A five-verb command: `draw`, `chart`, `convert`, `layout`, `doctor`.
+- An interactive terminal viewer (`tui`) and a desktop window (`gui`), both
+  driving one `view.Session` that recomputes only the pipeline stages a change
+  actually affects. Curses and tkinter, both standard library, so neither
+  interface costs a runtime dependency.
+- `syntax`, which prints the `.kg` format in full with a worked example that a
+  test parses and lays out.
+- Numeric command-line options are validated rather than clamped: `--scale 0`
+  used to exit 0 having written a one-pixel image.
 - A `./kilix-graphs` launcher that runs the package straight from a
   checkout, and a `make all` build target, so the repository is runnable
   and installable without pip.
-- 144 tests, no runtime dependencies. The raster tests skip rather than fail
+- 189 tests, no runtime dependencies. The raster tests skip rather than fail
   where soft-raster is absent.

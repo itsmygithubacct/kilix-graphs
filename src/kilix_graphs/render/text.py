@@ -23,7 +23,15 @@ from dataclasses import dataclass
 from ..model import FONT_ADVANCE, FONT_HEIGHT, display_width
 from ..scene import Anchor, Ellipse, Polygon, Polyline, Rect, Scene, Text
 
-__all__ = ["ASCII", "Charset", "TextOptions", "UNICODE", "render_text"]
+__all__ = [
+    "ASCII",
+    "Charset",
+    "Cell",
+    "TextOptions",
+    "UNICODE",
+    "render_cells",
+    "render_text",
+]
 
 N, S, E, W = 1, 2, 4, 8
 
@@ -157,9 +165,35 @@ class _Grid:
             self.colour[row][col] = colour
 
 
+#: One cell: the character, and the colour it was drawn in (None for blank).
+Cell = tuple[str, "int | None"]
+
+
 def render_text(scene: Scene, opts: TextOptions | None = None) -> str:
-    """Render a scene as a grid of characters."""
-    options = opts or TextOptions()
+    """Render a scene as a grid of characters, as one string."""
+    return _emit(_render(scene, opts or TextOptions()), opts or TextOptions())
+
+
+def render_cells(scene: Scene, opts: TextOptions | None = None) -> list[list[Cell]]:
+    """Render a scene as rows of (character, colour) pairs.
+
+    `render_text` bakes colour into ANSI escapes, which is right for a pipe and
+    useless to a curses interface -- curses owns the attributes and will print
+    an escape sequence literally. Both callers want the same grid; only the
+    encoding differs, so the grid is what gets shared.
+    """
+    grid = _render(scene, opts or TextOptions())
+    return [
+        [
+            (grid.chars[row][col], grid.colour[row][col])
+            for col in range(grid.columns)
+            if grid.chars[row][col] != CONTINUATION
+        ]
+        for row in range(grid.rows)
+    ]
+
+
+def _render(scene: Scene, options: TextOptions) -> "_Grid":
     charset = options.charset
 
     columns = min(options.max_columns, max(1, _cell(scene.width, options.cell_w) + 1))
@@ -246,7 +280,7 @@ def render_text(scene: Scene, opts: TextOptions | None = None) -> str:
     for points, colour in arrows:
         _arrow(grid, charset, points, to_cell, colour)
 
-    return _emit(grid, options)
+    return grid
 
 
 def _cell(value: float, size: float) -> int:

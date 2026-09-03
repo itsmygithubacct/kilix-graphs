@@ -1,11 +1,14 @@
 """The `kilix-graphs` command.
 
-Five verbs, each doing one thing:
+Eight verbs, each doing one thing:
 
     draw     a graph, to the terminal or a file
     chart    a chart from CSV or JSON, likewise
+    tui      the interactive terminal viewer
+    gui      the desktop window
     convert  between the input formats
     layout   positions only, as JSON, with no renderer in the way
+    syntax   what to write in a .kg file
     doctor   what this installation can and cannot do
 
 `draw` with no `--out` writes to the terminal and picks its renderer from what
@@ -37,6 +40,28 @@ _RENDERERS = ("auto", "raster", "text", "svg")
 _IMAGE_SUFFIXES = {".ppm", ".png"}
 
 
+def _bounded(name: str, low: float, high: float, kind=float):
+    """An argparse type that refuses nonsense instead of clamping it.
+
+    `--scale 0` used to exit 0 having written a one-pixel image: the request
+    was impossible, the answer was garbage, and the status said success. A
+    number outside its usable range is a mistake worth a message.
+    """
+
+    def parse(text: str):
+        try:
+            value = kind(text)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"{name} must be a number") from None
+        if not low <= value <= high:
+            raise argparse.ArgumentTypeError(
+                f"{name} must be between {low:g} and {high:g}, not {value:g}"
+            )
+        return value
+
+    return parse
+
+
 def _read(path: str) -> str:
     if path == "-":
         return sys.stdin.read()
@@ -45,6 +70,9 @@ def _read(path: str) -> str:
 
 def _emit_scene(scene: Scene, args: argparse.Namespace) -> int:
     out = getattr(args, "out", None)
+    if out and Path(out).is_dir():
+        print(f"kilix-graphs: {out} is a directory; -o takes a filename", file=sys.stderr)
+        return 2
     suffix = Path(out).suffix.lower() if out else ""
 
     backend = args.renderer
@@ -80,11 +108,20 @@ def _emit_scene(scene: Scene, args: argparse.Namespace) -> int:
     except raster.RasterUnavailable as error:
         print(f"kilix-graphs: {error}", file=sys.stderr)
         return 3
+    wanted = (round(scene.width * args.scale), round(scene.height * args.scale))
+    if (canvas.width, canvas.height) != wanted:
+        # Silently returning a smaller image than asked for is how a user ends
+        # up wondering why their diagram is cropped.
+        print(
+            f"kilix-graphs: {wanted[0]}x{wanted[1]} exceeds the canvas limit; "
+            f"drew {canvas.width}x{canvas.height}. Lower --scale.",
+            file=sys.stderr,
+        )
     try:
         if out and suffix == ".ppm":
             canvas.write_ppm(out)
         elif out and suffix == ".png":
-            Path(out).write_bytes(_png(canvas))
+            Path(out).write_bytes(raster.png_bytes(canvas))
         elif out:
             print(
                 f"kilix-graphs: don't know how to write {suffix or out!r}; "
@@ -97,38 +134,6 @@ def _emit_scene(scene: Scene, args: argparse.Namespace) -> int:
     finally:
         canvas.close()
     return 0
-
-
-def _png(canvas: object) -> bytes:
-    """Encode a canvas as a PNG, with the stdlib and nothing else.
-
-    A PNG is a fixed header, one zlib stream of filter-prefixed rows, and
-    CRC32 per chunk — all of which `zlib` and `struct` already provide. Adding
-    an image dependency to write the one format everything can open would be
-    the wrong trade for this app's zero-dependency rule.
-    """
-    import struct  # noqa: PLC0415
-    import zlib  # noqa: PLC0415
-
-    width = canvas.width  # type: ignore[attr-defined]
-    height = canvas.height  # type: ignore[attr-defined]
-    rgb = canvas.rgb_bytes()  # type: ignore[attr-defined]
-    stride = width * 3
-    raw = b"".join(
-        b"\x00" + bytes(rgb[y * stride : (y + 1) * stride]) for y in range(height)
-    )
-
-    def chunk(tag: bytes, payload: bytes) -> bytes:
-        body = tag + payload
-        return struct.pack(">I", len(payload)) + body + struct.pack(">I", zlib.crc32(body))
-
-    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
-    return (
-        b"\x89PNG\r\n\x1a\n"
-        + chunk(b"IHDR", header)
-        + chunk(b"IDAT", zlib.compress(raw, 9))
-        + chunk(b"IEND", b"")
-    )
 
 
 def _present(canvas: object) -> None:
@@ -347,6 +352,101 @@ def _chart_from(source: str, args: argparse.Namespace) -> Chart:
     return chart
 
 
+SYNTAX = """\
+The .kg syntax, in full.
+
+  # a comment; blank lines are ignored
+
+  digraph Name          optional header. `graph` for undirected.
+                        Without one the graph is directed.
+
+  a -> b                a directed edge
+  a -- b                an undirected one
+  a -> b -> c           a chain: two edges
+
+  a -> b: ships         a trailing `: text` labels what precedes it --
+  disk: Cold storage    the edge on an edge line, the node on a node line
+
+  disk {shape=box}      attributes; may follow a label:
+                        `disk: Cold storage {shape=box}`
+
+  group id: Label       a cluster. Indented lines below are its members,
+      a                 and groups nest by indentation.
+      b
+
+Shapes: round (the default), box, ellipse, circle, diamond, point.
+Attributes lifted onto a node: label, shape, color, fillcolor.
+On an edge: label, color, style=dashed|dotted, dir=none, weight, minlen.
+
+An identifier is anything without whitespace, `:`, `{` or an arrow. Quote it
+if it needs one of those: `"a:b" -> c`.
+
+A worked example:
+
+  # How a frame reaches the screen.
+  digraph FramePath
+
+  group capture: Capture
+      camera -> rtsp: h264
+      rtsp   -> decode
+
+  decode -> present
+  present -> shm: "t=s"
+  present -> inline: "t=d,o=z"
+  shm    -> terminal
+  inline -> terminal
+
+  terminal {shape=box}
+
+DOT and JSON Graph Format are read too; the format is detected from the file
+name, or from the content when reading standard input.
+"""
+
+
+def cmd_syntax(args: argparse.Namespace) -> int:
+    sys.stdout.write(SYNTAX)
+    return 0
+
+
+def _viewer_session(args: argparse.Namespace):
+    from .view import Session, Settings  # noqa: PLC0415
+
+    if not args.source:
+        # `gui` with no file opens on an example, so the window is never an
+        # empty box with a file dialog behind it.
+        return Session(source="digraph\n\na -> b -> c\nb -> d\n",
+                       settings=Settings(engine=args.engine, direction=args.direction,
+                                         theme=args.theme, scale=getattr(args, "scale", 1.0)))
+    settings = Settings(
+        engine=args.engine,
+        direction=args.direction,
+        theme=args.theme,
+        scale=getattr(args, "scale", 1.0),
+    )
+    if args.source == "-":
+        return Session(source=sys.stdin.read(), settings=settings, fmt=args.format)
+    return Session(path=args.source, settings=settings, fmt=args.format)
+
+
+def cmd_tui(args: argparse.Namespace) -> int:
+    from . import tui  # noqa: PLC0415
+
+    if not sys.stdout.isatty():
+        print(
+            "kilix-graphs: tui needs a terminal. "
+            "Use `draw` to write a rendering somewhere.",
+            file=sys.stderr,
+        )
+        return 2
+    return tui.run(_viewer_session(args))
+
+
+def cmd_gui(args: argparse.Namespace) -> int:
+    from . import gui  # noqa: PLC0415
+
+    return gui.run(_viewer_session(args))
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     from .render import raster  # noqa: PLC0415
 
@@ -391,7 +491,10 @@ def build_parser() -> argparse.ArgumentParser:
             "-r", "--renderer", choices=_RENDERERS, default="auto",
             help="auto probes the terminal (default)",
         )
-        sub.add_argument("--scale", type=float, default=1.0, help="pixels per scene unit")
+        sub.add_argument(
+            "--scale", type=_bounded("--scale", 0.01, 64.0), default=1.0,
+            help="pixels per scene unit (0.01 to 64)",
+        )
         sub.add_argument("--theme", default="dark", choices=("dark", "light"))
         sub.add_argument("--ascii", action="store_true", help="text output without box drawing")
         sub.add_argument(
@@ -408,8 +511,8 @@ def build_parser() -> argparse.ArgumentParser:
             "-e", "--engine", default="layered", choices=sorted(layout.ENGINES),
         )
         sub.add_argument("-d", "--direction", default="TB", choices=("TB", "BT", "LR", "RL"))
-        sub.add_argument("--nodesep", type=float)
-        sub.add_argument("--ranksep", type=float)
+        sub.add_argument("--nodesep", type=_bounded("--nodesep", 0.0, 4000.0))
+        sub.add_argument("--ranksep", type=_bounded("--ranksep", 0.0, 4000.0))
         sub.add_argument(
             "--ranker",
             choices=("network-simplex", "coordinate-descent", "longest-path"),
@@ -424,7 +527,10 @@ def build_parser() -> argparse.ArgumentParser:
     draw.add_argument("source", help="a .kg, .dot or .json file, or - for stdin")
     layout_flags(draw)
     output_flags(draw)
-    draw.add_argument("--font-scale", type=int, default=1, dest="font_scale")
+    draw.add_argument(
+        "--font-scale", type=_bounded("--font-scale", 1, 8, int), default=1,
+        dest="font_scale", help="integer label size multiplier (1 to 8)",
+    )
     draw.add_argument(
         "--straight", dest="curved", action="store_false",
         help="poly-line edges instead of smoothed ones",
@@ -450,14 +556,35 @@ def build_parser() -> argparse.ArgumentParser:
     chart.add_argument("--title", default="")
     chart.add_argument("--xlabel", default="")
     chart.add_argument("--ylabel", default="")
-    chart.add_argument("--width", type=float, default=760.0)
-    chart.add_argument("--height", type=float, default=420.0)
+    chart.add_argument("--width", type=_bounded("--width", 80.0, 20000.0), default=760.0)
+    chart.add_argument("--height", type=_bounded("--height", 60.0, 20000.0), default=420.0)
     chart.add_argument(
         "--no-zero", action="store_true",
         help="do not force a value axis to include zero (never use with bars)",
     )
     output_flags(chart)
     chart.set_defaults(func=cmd_chart)
+
+    for name, function, blurb in (
+        ("tui", cmd_tui, "open the interactive terminal viewer"),
+        ("gui", cmd_gui, "open the desktop window"),
+    ):
+        viewer = subparsers.add_parser(name, help=blurb)
+        viewer.add_argument("source", nargs="?", default="-" if name == "tui" else None,
+                            help="a .kg, .dot or .json file")
+        viewer.add_argument("-e", "--engine", default="layered", choices=sorted(layout.ENGINES))
+        viewer.add_argument("-d", "--direction", default="TB", choices=("TB", "BT", "LR", "RL"))
+        viewer.add_argument("--theme", default="dark", choices=("dark", "light"))
+        viewer.add_argument("-f", "--format", choices=parse.FORMATS)
+        if name == "gui":
+            viewer.add_argument(
+                "--scale", type=_bounded("--scale", 0.25, 8.0), default=1.0,
+                help="initial zoom",
+            )
+        viewer.set_defaults(func=function)
+
+    syntax = subparsers.add_parser("syntax", help="what to write in a .kg file")
+    syntax.set_defaults(func=cmd_syntax)
 
     doctor = subparsers.add_parser("doctor", help="report what this installation can do")
     doctor.set_defaults(func=cmd_doctor)
