@@ -4,8 +4,9 @@ Eight verbs, each doing one thing:
 
     draw     a graph, to the terminal or a file
     chart    a chart from CSV or JSON, likewise
-    tui      the interactive terminal viewer
-    gui      the desktop window
+    tui      the interactive cell viewer
+    gui      the graphical viewer: pixels and a mouse in this pane,
+             or a desktop window where there is no graphics protocol
     convert  between the input formats
     layout   positions only, as JSON, with no renderer in the way
     syntax   what to write in a .kg file
@@ -22,6 +23,7 @@ import argparse
 import csv
 import io
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -442,9 +444,30 @@ def cmd_tui(args: argparse.Namespace) -> int:
 
 
 def cmd_gui(args: argparse.Namespace) -> int:
+    """The graphical viewer, in whichever surface this machine has.
+
+    The pane is the native one: 39 of the 42 entries in the Kilix content
+    catalog launch as a terminal pane and exactly one opens an X window, so a
+    desktop toolkit is the exception on this stack rather than the default.
+    The window is the fallback for a desktop session outside Kilix, and
+    `--window` asks for it directly.
+    """
+    from . import pane  # noqa: PLC0415
+
+    session = _viewer_session(args)
+    if not args.window and pane.available():
+        return pane.run(session)
+
     from . import gui  # noqa: PLC0415
 
-    return gui.run(_viewer_session(args))
+    if args.window or os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
+        return gui.run(session)
+    print(
+        "kilix-graphs: no graphics protocol and no display. "
+        "Use `kilix-graphs tui` for the cell viewer.",
+        file=sys.stderr,
+    )
+    return 3
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
@@ -472,8 +495,17 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     except ImportError:
         print("  frame presenter   no (a still image still draws)")
 
+    from . import pane  # noqa: PLC0415
+
     print(f"  raster backend    {'ready' if raster.available() else 'not available'}")
     print(f"  chosen renderer   {render.choose()}")
+    if pane.available() and raster.available():
+        surface = "pane (pixels and a mouse, in this terminal)"
+    elif os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
+        surface = "window (tkinter; no graphics protocol here)"
+    else:
+        surface = "none -- use `tui`"
+    print(f"  gui surface       {surface}")
     return 0
 
 
@@ -567,7 +599,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     for name, function, blurb in (
         ("tui", cmd_tui, "open the interactive terminal viewer"),
-        ("gui", cmd_gui, "open the desktop window"),
+        ("gui", cmd_gui, "open the graphical viewer: this pane, or a window"),
     ):
         viewer = subparsers.add_parser(name, help=blurb)
         viewer.add_argument("source", nargs="?", default="-" if name == "tui" else None,
@@ -580,6 +612,10 @@ def build_parser() -> argparse.ArgumentParser:
             viewer.add_argument(
                 "--scale", type=_bounded("--scale", 0.25, 8.0), default=1.0,
                 help="initial zoom",
+            )
+            viewer.add_argument(
+                "--window", action="store_true",
+                help="open a desktop window instead of drawing in this pane",
             )
         viewer.set_defaults(func=function)
 

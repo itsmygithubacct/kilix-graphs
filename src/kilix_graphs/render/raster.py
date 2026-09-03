@@ -29,7 +29,14 @@ from typing import Any
 
 from ..scene import Anchor, Ellipse, Polygon, Polyline, Rect, Scene, Text
 
-__all__ = ["RasterOptions", "available", "png_bytes", "render_raster"]
+__all__ = [
+    "RasterOptions",
+    "available",
+    "new_canvas",
+    "png_bytes",
+    "render_raster",
+    "text_width",
+]
 
 
 class RasterUnavailable(RuntimeError):
@@ -63,6 +70,25 @@ def available() -> bool:
     except Exception:  # noqa: BLE001 - any failure means "not available"
         return False
     return bool(getattr(library, "supports_graph_primitives", False))
+
+
+def new_canvas(width: int, height: int, background: int = 0x000000) -> Any:
+    """A blank canvas, cleared.
+
+    Exposed so a caller that composes its own frame -- the pane viewer blits a
+    rendered page into a viewport and draws chrome over it -- does not have to
+    import `soft_raster` itself. This module is the one seam to the native
+    library, and a test enforces that; a second importer is a second place to
+    fix when the binding moves.
+    """
+    canvas = _soft_raster().Canvas(max(1, width), max(1, height))
+    canvas.clear(background)
+    return canvas
+
+
+def text_width(text: str, scale: int = 1) -> int:
+    """Rendered width of a string in the embedded font, in pixels."""
+    return int(_soft_raster().text_width(text, scale))
 
 
 def render_raster(scene: Scene, opts: RasterOptions | None = None) -> Any:

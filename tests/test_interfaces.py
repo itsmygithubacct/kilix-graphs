@@ -167,6 +167,197 @@ class TuiTests(unittest.TestCase):
         self.assertTrue(all(0 <= i <= 255 for i in indexes))
 
 
+# -------------------------------------------------------------------- PANE
+
+
+class PaneTests(unittest.TestCase):
+    """The Kilix-native graphical surface: pixels and a mouse in a pane."""
+
+    def pane(self, source: str = GRAPH, columns: int = 100, rows: int = 40):
+        from kilix_graphs import pane
+
+        return pane._Pane(
+            Session(source=source), size=(columns, rows), cell=(8, 16)
+        )
+
+    def needs_pixels(self) -> None:
+        """Panning and zooming are measured against a rendered page."""
+        from kilix_graphs.render import raster
+
+        if not raster.available():
+            self.skipTest("the pane viewer draws pixels")
+
+    def test_it_decodes_sgr_mouse_reports_in_wire_order(self) -> None:
+        from kilix_graphs.pane import _Mouse
+
+        board = self.pane()
+        events = board._decode("a\x1b[<0;10;5Mb\x1b[<0;10;5mc\x1b[<64;3;3M")
+        kinds = [type(e).__name__ for e in events]
+        self.assertEqual(kinds, ["str", "_Mouse", "str", "_Mouse", "str", "_Mouse"])
+        press, release, wheel = (e for e in events if isinstance(e, _Mouse))
+        self.assertTrue(press.pressed)
+        self.assertEqual((press.column, press.row), (10, 5))
+        self.assertFalse(release.pressed)
+        self.assertEqual(wheel.wheel, -1)
+
+    def test_motion_while_held_is_distinguished_from_a_press(self) -> None:
+        board = self.pane()
+        (motion,) = board._decode("\x1b[<32;12;7M")
+        self.assertTrue(motion.motion)
+        self.assertTrue(motion.pressed)
+
+    def test_the_hit_test_round_trips_with_the_drawing(self) -> None:
+        """Every node is findable at the cell the pane says it is drawn in."""
+        self.needs_pixels()
+        board = self.pane()
+        for node in board.session.graph().nodes.values():
+            with self.subTest(node=node.id):
+                self.assertIs(board.at(*board.cell_of(node.x, node.y)), node)
+
+    def test_empty_space_selects_nothing(self) -> None:
+        self.needs_pixels()
+        board = self.pane(columns=120, rows=44)
+        graph = board.session.graph()
+        far = max(n.y + n.h for n in graph.nodes.values()) + 200
+        self.assertIsNone(board.at(*board.cell_of(0, far)))
+
+    def test_the_hit_test_follows_the_pan(self) -> None:
+        self.needs_pixels()
+        board = self.pane(columns=20, rows=10)
+        node = board.session.graph().nodes["a"]
+        board.page()
+        cell = board.cell_of(node.x, node.y)
+        self.assertIs(board.at(*cell), node)
+        board.pan_y += 200
+        board.clamp()
+        self.assertIsNot(board.at(*cell), node)
+
+    def test_zooming_keeps_the_point_under_the_pointer_still(self) -> None:
+        """The thing that makes wheel-zoom feel right rather than lurch.
+
+        Only away from the edges: at the edge the pan is clamped to the page,
+        correctly, and no amount of compensation can show what is not there.
+        """
+        self.needs_pixels()
+        big = "digraph\n" + "\n".join(f"n{i} -> n{i + 1}" for i in range(40))
+        board = self.pane(source=big, columns=20, rows=10)
+        board.session.update(scale=1.0)
+        page = board.page()
+        board.pan_x = (page.width - board.width) / 2
+        board.pan_y = (page.height - board.height) / 2
+        at_x, at_y = board.width / 2, board.height / 2
+        before = ((board.pan_x + at_x), (board.pan_y + at_y))
+
+        board.zoom_by(2.0, at_x, at_y)
+        scale = board.session.settings.scale
+        after_page = board._page
+        self.assertLess(board.pan_x, after_page.width - board.width, "clamped in x")
+        self.assertLess(board.pan_y, after_page.height - board.height, "clamped in y")
+        self.assertAlmostEqual(before[0], (board.pan_x + at_x) / scale, places=6)
+        self.assertAlmostEqual(before[1], (board.pan_y + at_y) / scale, places=6)
+
+    def test_zooming_never_scrolls_past_the_page(self) -> None:
+        self.needs_pixels()
+        board = self.pane(columns=20, rows=10)
+        board.session.update(scale=1.0)
+        board.page()
+        for _ in range(6):
+            board.zoom_by(1.5, board.width, board.height)  # push at the corner
+            page = board._page
+            self.assertLessEqual(board.pan_x, max(0, page.width - board.width))
+            self.assertLessEqual(board.pan_y, max(0, page.height - board.height))
+            self.assertGreaterEqual(board.pan_x, 0)
+            self.assertGreaterEqual(board.pan_y, 0)
+
+    def test_zoom_is_bounded(self) -> None:
+        self.needs_pixels()
+        board = self.pane()
+        for _ in range(40):
+            board.zoom_by(2.0, 0, 0)
+        self.assertLessEqual(board.session.settings.scale, 8.0)
+        for _ in range(80):
+            board.zoom_by(0.5, 0, 0)
+        self.assertGreaterEqual(board.session.settings.scale, 0.1)
+
+    def test_keys_match_the_cell_viewer_where_they_overlap(self) -> None:
+        board = self.pane()
+        board.key("e")
+        self.assertNotEqual(board.session.settings.engine, "layered")
+        board.key("t")
+        self.assertEqual(board.session.settings.theme, "light")
+        self.assertFalse(board.key("q"))
+
+    def test_it_declines_politely_where_there_is_no_graphics_protocol(self) -> None:
+        from kilix_graphs import pane
+
+        self.assertFalse(pane.available())  # tests do not run under kitty
+
+    def test_a_source_only_session_has_nowhere_to_export(self) -> None:
+        board = self.pane()
+        board.export()
+        self.assertIn("stdin", board.message)
+
+
+class PaneEndToEndTests(unittest.TestCase):
+    """Drive the real thing in a pseudo-terminal that claims to be kitty."""
+
+    def setUp(self) -> None:
+        from kilix_graphs.render import raster
+
+        if not raster.available():
+            self.skipTest("the pane viewer draws pixels")
+
+    def test_it_draws_reacts_and_restores_the_terminal(self) -> None:
+        import fcntl
+        import pty
+        import select
+        import struct
+        import termios
+        import time
+
+        path = temp_file(GRAPH)
+        env = dict(os.environ, TERM="xterm-kitty",
+                   PYTHONPATH=os.environ.get("PYTHONPATH", "src"))
+        pid, fd = pty.fork()
+        if pid == 0:  # pragma: no cover - the child execs away
+            os.chdir(Path(__file__).resolve().parent.parent)
+            os.execvpe(sys.executable,
+                       [sys.executable, "-m", "kilix_graphs.cli", "gui", str(path)], env)
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 960, 640))
+
+        def read(seconds: float) -> bytes:
+            out = b""
+            end = time.time() + seconds
+            while time.time() < end:
+                ready, _, _ = select.select([fd], [], [], 0.1)
+                if ready:
+                    try:
+                        out += os.read(fd, 1 << 20)
+                    except OSError:
+                        break
+            return out
+
+        try:
+            opening = read(2.5)
+            self.assertIn(b"\x1b[?1049h", opening, "no alternate screen")
+            self.assertIn(b"\x1b[?1006h", opening, "no SGR mouse")
+            self.assertGreater(opening.count(b"\x1b_G"), 0, "no graphics escapes")
+
+            os.write(fd, b"\x1b[<0;10;6M")  # a click
+            self.assertGreater(read(1.0).count(b"\x1b_G"), 0, "no redraw after a click")
+
+            os.write(fd, b"q")
+            closing = read(1.5)
+            self.assertIn(b"\x1b[?1006l", closing, "mouse left enabled")
+            self.assertIn(b"\x1b[?1049l", closing, "alternate screen left on")
+        finally:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        self.assertEqual(os.waitstatus_to_exitcode(os.waitpid(pid, 0)[1]), 0)
+
+
 # --------------------------------------------------------------------- GUI
 
 

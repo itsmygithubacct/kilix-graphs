@@ -93,8 +93,8 @@ terminal {shape=box}
 ## Three interfaces
 
 ```sh
-kilix-graphs tui  graph.kg     # interactive, in the terminal
-kilix-graphs gui  graph.kg     # a window
+kilix-graphs tui  graph.kg     # cells, works anywhere
+kilix-graphs gui  graph.kg     # pixels and a mouse, in this pane
 kilix-graphs draw graph.kg     # one drawing, then exit
 ```
 
@@ -119,13 +119,28 @@ normal way to work.
 Needs no `soft-raster`: it draws through the same cell renderer as
 `--renderer text`.
 
-### `gui` — the window
+### `gui` — pixels and a mouse, in the pane
 
-Tkinter, which is in the standard library, so the desktop viewer costs this
-package no runtime dependency. Engine, direction, theme, curves and zoom on a
-toolbar; drag to pan; **Fit** to size the drawing to the window; export to PNG,
-SVG or PPM. It reloads on save like the TUI, and falls back to the cell
-rendering when there are no pixels to be had.
+This is the Kilix-native graphical surface, and picking it over a desktop
+toolkit is not a style preference. Of the 42 entries in the Kilix content
+catalog, **39 launch as a terminal pane and exactly one opens an X window**;
+sixteen declare `kitty-graphics` and three of those also take `kitty-mouse`.
+The pieces are already modules: `soft-raster` draws, `kitty-frame-presenter`
+puts the frame in the pane, and the mouse and keyboard arrive as terminal
+escapes.
+
+Drag to pan, wheel to zoom about the pointer, click to select a node — which
+needs a hit test against real geometry, and is the thing a character grid
+cannot do. Hovering rings the node under the pointer.
+
+Where there is no graphics protocol but there *is* a display, the same verb
+opens a tkinter window instead — also standard library, so neither surface
+costs this package a runtime dependency. `--window` asks for the window
+directly. `kilix-graphs doctor` says which one you would get.
+
+There is a `kilix-ui`, and it is deliberately not used here: it is game UI in
+C — menus, panels, meters, portraits — built on `kilix-top-down-engine`, and
+its own status notes list pointer hit testing as a future feature.
 
 ### `draw` and the rest
 
@@ -255,7 +270,7 @@ make test-raster   # the same suite with soft-raster on the path
 make examples      # render examples/ into build/
 ```
 
-The suite is 189 tests. The raster ones skip when `soft-raster` is absent
+The suite is 201 tests. The raster ones skip when `soft-raster` is absent
 rather than failing, so `make check` is still a meaningful run anywhere.
 
 ## Licence

@@ -33,9 +33,11 @@ First release.
 - Two themes, both validated for colourblind separation, lightness band and
   contrast against their own surface.
 - A five-verb command: `draw`, `chart`, `convert`, `layout`, `doctor`.
-- An interactive terminal viewer (`tui`) and a desktop window (`gui`), both
-  driving one `view.Session` that recomputes only the pipeline stages a change
-  actually affects. Curses and tkinter, both standard library, so neither
+- Three interfaces over one `view.Session`, which recomputes only the pipeline
+  stages a change actually affects. `tui` is curses; `gui` draws pixels and
+  takes a mouse in the terminal pane, which is what 39 of the 42 catalog
+  entries do, and falls back to a tkinter window where there is a display but
+  no graphics protocol. Curses and tkinter are both standard library, so no
   interface costs a runtime dependency.
 - `syntax`, which prints the `.kg` format in full with a worked example that a
   test parses and lays out.
@@ -44,5 +46,5 @@ First release.
 - A `./kilix-graphs` launcher that runs the package straight from a
   checkout, and a `make all` build target, so the repository is runnable
   and installable without pip.
-- 189 tests, no runtime dependencies. The raster tests skip rather than fail
+- 201 tests, no runtime dependencies. The raster tests skip rather than fail
   where soft-raster is absent.
