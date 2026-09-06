@@ -228,6 +228,13 @@ def _draw_text(canvas: Any, sr: Any, op: Text, scale: float) -> None:
         canvas.text(x, y, line, colour, op.style.alpha, multiplier)
 
 
+def ppm_bytes(canvas: Any) -> bytes:
+    """Encode a canvas as binary PPM (P6), so it can be written by the same
+    no-clobber path as every other output instead of by the rasteriser's own
+    file writer, which opens whatever name it is given."""
+    return b"P6\n%d %d\n255\n" % (canvas.width, canvas.height) + bytes(canvas.rgb_bytes())
+
+
 def png_bytes(canvas: Any) -> bytes:
     """Encode a canvas as a PNG, with the standard library and nothing else.
 

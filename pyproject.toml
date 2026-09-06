@@ -24,8 +24,10 @@ classifiers = [
 # other path runs on a bare interpreter.
 dependencies = []
 
-[project.optional-dependencies]
-raster = ["soft-raster-py"]
+# The pixel backend needs soft-raster and its Python binding, which are built
+# from the soft-raster repository and are on no package index. An extra that
+# named a distribution nobody publishes could only fail to resolve, or resolve
+# to whatever someone else published under that name; there is none.
 
 [project.scripts]
 kilix-graphs = "kilix_graphs.cli:main"

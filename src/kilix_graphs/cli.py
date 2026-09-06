@@ -27,6 +27,8 @@ import os
 import sys
 from pathlib import Path
 
+from .output import OutputExists, write_new
+
 from . import __version__, compose, layout, parse, render
 from .chart import Axis, Chart, compose_chart
 from .compose import ComposeOptions
@@ -70,6 +72,21 @@ def _read(path: str) -> str:
     return Path(path).read_text(encoding="utf-8")
 
 
+def _protected(args: argparse.Namespace) -> tuple[str, ...]:
+    """The inputs an output may never replace, whatever `--force` says."""
+    source = getattr(args, "source", None)
+    return (source,) if source and source != "-" else ()
+
+
+def _write_out(args: argparse.Namespace, out: str, payload: bytes | str) -> int:
+    try:
+        write_new(out, payload, force=bool(getattr(args, "force", False)), protect=_protected(args))
+    except OutputExists as error:
+        print(f"kilix-graphs: {error}", file=sys.stderr)
+        return 2
+    return 0
+
+
 def _emit_scene(scene: Scene, args: argparse.Namespace) -> int:
     out = getattr(args, "out", None)
     if out and Path(out).is_dir():
@@ -86,9 +103,8 @@ def _emit_scene(scene: Scene, args: argparse.Namespace) -> int:
     if backend == "svg":
         payload = render_svg(scene)
         if out:
-            Path(out).write_text(payload, encoding="utf-8")
-        else:
-            sys.stdout.write(payload + "\n")
+            return _write_out(args, out, payload)
+        sys.stdout.write(payload + "\n")
         return 0
 
     if backend == "text":
@@ -98,9 +114,8 @@ def _emit_scene(scene: Scene, args: argparse.Namespace) -> int:
         )
         payload = render_text(scene, options)
         if out:
-            Path(out).write_text(payload + "\n", encoding="utf-8")
-        else:
-            sys.stdout.write(payload + "\n")
+            return _write_out(args, out, payload + "\n")
+        sys.stdout.write(payload + "\n")
         return 0
 
     from .render import raster  # noqa: PLC0415 - only when pixels are wanted
@@ -121,9 +136,9 @@ def _emit_scene(scene: Scene, args: argparse.Namespace) -> int:
         )
     try:
         if out and suffix == ".ppm":
-            canvas.write_ppm(out)
+            return _write_out(args, out, raster.ppm_bytes(canvas))
         elif out and suffix == ".png":
-            Path(out).write_bytes(raster.png_bytes(canvas))
+            return _write_out(args, out, raster.png_bytes(canvas))
         elif out:
             print(
                 f"kilix-graphs: don't know how to write {suffix or out!r}; "
@@ -232,9 +247,8 @@ def cmd_layout(args: argparse.Namespace) -> int:
     layout.run(graph, args.engine, **_layout_options(args))
     payload = jgf.dumps(graph, positions=True)
     if args.out:
-        Path(args.out).write_text(payload + "\n", encoding="utf-8")
-    else:
-        sys.stdout.write(payload + "\n")
+        return _write_out(args, args.out, payload + "\n")
+    sys.stdout.write(payload + "\n")
     return 0
 
 
@@ -247,9 +261,8 @@ def cmd_convert(args: argparse.Namespace) -> int:
     else:
         payload = _to_kg(graph)
     if args.out:
-        Path(args.out).write_text(payload + "\n", encoding="utf-8")
-    else:
-        sys.stdout.write(payload + "\n")
+        return _write_out(args, args.out, payload + "\n")
+    sys.stdout.write(payload + "\n")
     return 0
 
 
@@ -531,6 +544,10 @@ def build_parser() -> argparse.ArgumentParser:
     def output_flags(sub: argparse.ArgumentParser) -> None:
         sub.add_argument("-o", "--out", help="write to a file (.ppm, .png, .svg, or text)")
         sub.add_argument(
+            "--force", action="store_true",
+            help="replace an existing regular file named by -o (never a symlink or the input)",
+        )
+        sub.add_argument(
             "-r", "--renderer", choices=_RENDERERS, default="auto",
             help="auto probes the terminal (default)",
         )
@@ -584,6 +601,7 @@ def build_parser() -> argparse.ArgumentParser:
     positions.add_argument("source")
     layout_flags(positions)
     positions.add_argument("-o", "--out")
+    positions.add_argument("--force", action="store_true", help="replace an existing regular file")
     positions.set_defaults(func=cmd_layout)
 
     convert = subparsers.add_parser("convert", help="translate between input formats")
@@ -591,6 +609,7 @@ def build_parser() -> argparse.ArgumentParser:
     convert.add_argument("-t", "--to", default="jgf", choices=("kg", "dot", "jgf"))
     convert.add_argument("-f", "--format", choices=parse.FORMATS)
     convert.add_argument("-o", "--out")
+    convert.add_argument("--force", action="store_true", help="replace an existing regular file")
     convert.set_defaults(func=cmd_convert)
 
     chart = subparsers.add_parser("chart", help="render a chart from CSV or JSON")

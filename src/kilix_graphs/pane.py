@@ -410,15 +410,19 @@ class _Pane:
             return
         from .render import raster  # noqa: PLC0415
 
+        from .output import OutputExists, write_new  # noqa: PLC0415
+
         stem = self.session.path.with_suffix("")
         try:
-            Path(f"{stem}.svg").write_text(self.session.svg(), encoding="utf-8")
+            write_new(f"{stem}.svg", self.session.svg(), protect=(self.session.path,))
             canvas = self.session.raster()
             try:
-                Path(f"{stem}.png").write_bytes(raster.png_bytes(canvas))
+                write_new(f"{stem}.png", raster.png_bytes(canvas), protect=(self.session.path,))
             finally:
                 canvas.close()
             self.message = f"wrote {Path(stem).name}.svg and .png"
+        except OutputExists as error:
+            self.message = f"not written: {error}"
         except (OSError, ValueError) as error:
             self.message = f"could not write: {error}"
 

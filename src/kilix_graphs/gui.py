@@ -243,18 +243,22 @@ class _App:
         self.status.configure(text=f"wrote {chosen}")
 
     def _write(self, target: Path) -> None:
+        """The save dialog asked before reusing a name, so an existing regular
+        file may be replaced; a symlink or the source itself never is."""
+        from .output import write_new  # noqa: PLC0415
         from .render import raster  # noqa: PLC0415
 
+        protect = (self.session.path,) if self.session.path else ()
         suffix = target.suffix.lower()
         if suffix == ".svg":
-            target.write_text(self.session.svg(), encoding="utf-8")
+            write_new(target, self.session.svg(), force=True, protect=protect)
             return
         canvas = self.session.raster()
         try:
             if suffix == ".ppm":
-                canvas.write_ppm(str(target))
+                write_new(target, raster.ppm_bytes(canvas), force=True, protect=protect)
             else:
-                target.write_bytes(raster.png_bytes(canvas))
+                write_new(target, raster.png_bytes(canvas), force=True, protect=protect)
         finally:
             canvas.close()
 

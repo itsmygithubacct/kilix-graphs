@@ -58,8 +58,15 @@ Or run it straight from a clone, with nothing installed:
 ```
 
 Nothing is required at runtime. The pixel backend additionally wants
-`soft-raster` 0.5 or later and its Python binding; without them the text and
-SVG backends still work and `kilix-graphs doctor` says so.
+`soft-raster` 0.5 or later and its Python binding, both built from the
+`soft-raster` repository (they are on no package index, so there is no extra
+to install); without them the text and SVG backends still work and
+`kilix-graphs doctor` says so.
+
+Every file this tool writes on its own — the viewers' `w` key beside the
+source, and `-o` — is created fresh: an existing file, a symlink, or the
+source itself is refused rather than replaced. `-o` accepts `--force` to
+replace an existing regular file; a symlink or the input is still refused.
 
 ## The `.kg` syntax
 

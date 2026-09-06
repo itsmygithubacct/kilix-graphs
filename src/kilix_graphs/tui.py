@@ -230,22 +230,30 @@ class _Viewer:
         if self.session.path is None:
             self.message = "nothing to write beside: the graph came from stdin"
             return
+        from .output import OutputExists, write_new  # noqa: PLC0415
+
         stem = self.session.path.with_suffix("")
         try:
-            svg = Path(f"{stem}.svg")
-            svg.write_text(self.session.svg(), encoding="utf-8")
+            svg = write_new(f"{stem}.svg", self.session.svg(), protect=(self.session.path,))
             written = [svg.name]
             try:
+                from .render import raster  # noqa: PLC0415
+
                 canvas = self.session.raster()
                 try:
-                    ppm = Path(f"{stem}.ppm")
-                    canvas.write_ppm(str(ppm))
+                    ppm = write_new(
+                        f"{stem}.ppm", raster.ppm_bytes(canvas), protect=(self.session.path,)
+                    )
                     written.append(ppm.name)
                 finally:
                     canvas.close()
+            except OutputExists as error:
+                written.append(f"not {Path(str(error).split()[0]).name} ({error})")
             except Exception:  # noqa: BLE001 - pixels are a bonus, not the job
                 pass
             self.message = "wrote " + ", ".join(written)
+        except OutputExists as error:
+            self.message = f"not written: {error}"
         except (OSError, ValueError) as error:
             self.message = f"could not write: {error}"
 
